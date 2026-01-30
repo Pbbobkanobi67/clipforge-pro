@@ -1,0 +1,42 @@
+{
+  "permissions": {
+    "allow": [
+      "WebSearch",
+      "WebFetch(domain:www.opus.pro)",
+      "Bash(docker:*)",
+      "Bash(python -m venv:*)",
+      "Bash(venvScriptspip install fastapi uvicorn python-multipart pydantic pydantic-settings aiofiles httpx python-dotenv)",
+      "Bash(./venv/Scripts/pip.exe install:*)",
+      "Bash(./venv/Scripts/python.exe:*)",
+      "Bash(curl:*)",
+      "Bash(start http://localhost:8000/docs)",
+      "Bash(start \"D:\\\\Apps\\\\video-extract-pro\\\\index.html\")",
+      "Bash(yt-dlp:*)",
+      "Bash(ffmpeg:*)",
+      "Bash(taskkill /F /FI \"WINDOWTITLE eq *uvicorn*\")",
+      "Bash(taskkill:*)",
+      "Bash(netstat:*)",
+      "Bash(findstr:*)",
+      "Bash(venvScriptsactivate)",
+      "Bash(python -m uvicorn:*)",
+      "Bash(timeout:*)",
+      "Bash(ping:*)",
+      "Bash(\"D:\\\\Apps\\\\video-extract-pro\\\\backend\\\\venv\\\\Scripts\\\\python.exe\" -m uvicorn:*)",
+      "Bash(\"D:\\\\Apps\\\\video-extract-pro\\\\backend\\\\venv\\\\Scripts\\\\pip.exe\" install faster-whisper)",
+      "Bash(\"D:\\\\Apps\\\\video-extract-pro\\\\backend\\\\venv\\\\Scripts\\\\pip.exe\" install:*)",
+      "Bash(start \"\" \"D:\\\\Apps\\\\video-extract-pro\\\\index.html\")",
+      "Bash(where:*)",
+      "Bash(.venvScriptspython.exe -m uvicorn app.main:app --host 0.0.0.0 --port 8000)",
+      "Bash(tasklist:*)",
+      "Bash(powershell -Command:*)",
+      "Bash(cmd /c \"cd /d D:\\\\Apps\\\\video-extract-pro\\\\backend && .venv\\\\Scripts\\\\python.exe -m uvicorn app.main:app --host 0.0.0.0 --port 8000\")",
+      "Bash(\"D:\\\\Apps\\\\video-extract-pro\\\\backend\\\\.venv\\\\Scripts\\\\python.exe\" -m uvicorn:*)",
+      "Bash(python:*)",
+      "Bash(uvicorn app.main:app:*)",
+      "Bash(pip install:*)",
+      "Bash(ffprobe:*)",
+      "Bash(start \"\" \"C:\\\\Users\\\\bob\\\\Downloads\\\\clip_test.mp4\")",
+      "Bash(git init:*)"
+    ]
+  }
+}

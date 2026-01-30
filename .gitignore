@@ -1,0 +1,47 @@
+.vercel
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv/
+venv/
+ENV/
+
+# Environment
+.env
+.env.local
+*.env
+
+# Storage and cache
+backend/storage/videos/
+backend/storage/clips/
+backend/storage/cache/
+backend/storage/*.db
+*.db
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Temp files
+*.tmp
+analysis_result.json
+
+# Windows artifacts
+nul
+
+# Root storage
+storage/
+Export/

@@ -1,0 +1,2751 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Video Extract Pro - yt-dlp Command Generator</title>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <style>
+        :root {
+            --bg-base: #0c0c10;
+            --bg-surface: #14141a;
+            --bg-elevated: #1c1c24;
+            --bg-hover: #24242e;
+            --accent-blue: #3b82f6;
+            --accent-cyan: #06b6d4;
+            --accent-green: #22c55e;
+            --accent-yellow: #eab308;
+            --accent-orange: #f97316;
+            --accent-red: #ef4444;
+            --accent-purple: #a855f7;
+            --text-primary: #f4f4f5;
+            --text-secondary: #a1a1aa;
+            --text-muted: #71717a;
+            --border: #27272a;
+            --border-focus: #3b82f6;
+            --font-display: 'Space Grotesk', sans-serif;
+            --font-mono: 'JetBrains Mono', monospace;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: var(--font-display);
+            background: var(--bg-base);
+            color: var(--text-primary);
+            min-height: 100vh;
+            line-height: 1.5;
+        }
+
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: var(--bg-surface); }
+        ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+        ::-webkit-scrollbar-thumb:hover { background: var(--text-muted); }
+
+        input, select, textarea, button {
+            font-family: inherit;
+        }
+
+        .app {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
+        @keyframes slideIn {
+            from { opacity: 0; transform: translateX(-10px); }
+            to { opacity: 1; transform: translateX(0); }
+        }
+
+        .animate-in {
+            animation: fadeIn 0.3s ease-out;
+        }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect, useCallback, useMemo } = React;
+
+        // ============== ICONS ==============
+        const Icons = {
+            Download: () => <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>,
+            Zap: () => <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>,
+            Settings: () => <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>,
+            Clock: () => <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>,
+            Copy: () => <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>,
+            Check: () => <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="20 6 9 17 4 12"/></svg>,
+            Plus: () => <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>,
+            Trash: () => <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>,
+            Edit: () => <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>,
+            Star: () => <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>,
+            StarOutline: () => <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>,
+            Globe: () => <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>,
+            Terminal: () => <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>,
+            Layers: () => <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg>,
+            ArrowRight: () => <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>,
+            Video: () => <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="M10 9l5 3-5 3V9z"/></svg>,
+            Music: () => <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>,
+            List: () => <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>,
+            History: () => <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 3v5h5"/><path d="M3.05 13A9 9 0 1 0 6 5.3L3 8"/><path d="M12 7v5l4 2"/></svg>,
+            Code: () => <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>,
+            Folder: () => <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>,
+            ChevronDown: () => <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="6 9 12 15 18 9"/></svg>,
+            X: () => <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>,
+            Sparkles: () => <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 3l1.5 4.5L18 9l-4.5 1.5L12 15l-1.5-4.5L6 9l4.5-1.5L12 3z"/><path d="M5 19l.5 1.5L7 21l-1.5.5L5 23l-.5-1.5L3 21l1.5-.5L5 19z"/></svg>,
+            Brain: () => <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 2a4 4 0 0 0-4 4v1a3 3 0 0 0-3 3v1a3 3 0 0 0 3 3h1v5a2 2 0 0 0 2 2h2a2 2 0 0 0 2-2v-5h1a3 3 0 0 0 3-3v-1a3 3 0 0 0-3-3V6a4 4 0 0 0-4-4z"/><circle cx="9" cy="9" r="1"/><circle cx="15" cy="9" r="1"/></svg>,
+            Wand: () => <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M15 4V2"/><path d="M15 16v-2"/><path d="M8 9h2"/><path d="M20 9h2"/><path d="M17.8 11.8L19 13"/><path d="M15 9h0"/><path d="M17.8 6.2L19 5"/><path d="M3 21l9-9"/><path d="M12.2 6.2L11 5"/></svg>,
+            Upload: () => <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>,
+            Play: () => <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polygon points="5 3 19 12 5 21 5 3"/></svg>,
+            Scissors: () => <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><line x1="20" y1="4" x2="8.12" y2="15.88"/><line x1="14.47" y1="14.48" x2="20" y2="20"/><line x1="8.12" y1="8.12" x2="12" y2="12"/></svg>,
+            TrendingUp: () => <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></svg>,
+            Users: () => <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>,
+            FileText: () => <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>,
+            AlertCircle: () => <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>,
+            Loader: () => <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="animate-spin"><line x1="12" y1="2" x2="12" y2="6"/><line x1="12" y1="18" x2="12" y2="22"/><line x1="4.93" y1="4.93" x2="7.76" y2="7.76"/><line x1="16.24" y1="16.24" x2="19.07" y2="19.07"/><line x1="2" y1="12" x2="6" y2="12"/><line x1="18" y1="12" x2="22" y2="12"/><line x1="4.93" y1="19.07" x2="7.76" y2="16.24"/><line x1="16.24" y1="7.76" x2="19.07" y2="4.93"/></svg>,
+        };
+
+        // ============== DEFAULT PRESETS ==============
+        const defaultPresets = [
+            {
+                id: 'high-quality',
+                name: 'High Quality Video',
+                isDefault: true,
+                quality: '1080',
+                format: 'bestvideo[height<=1080]+bestaudio/best',
+                outputTemplate: '%(title)s.%(ext)s',
+                embedChapters: true,
+                embedMetadata: true,
+                embedThumbnail: false,
+                extractAudio: false,
+                audioFormat: 'mp3',
+                audioQuality: '0',
+            },
+            {
+                id: 'audio-only',
+                name: 'Audio Only (Music)',
+                isDefault: false,
+                quality: 'best',
+                format: 'bestaudio',
+                outputTemplate: '%(title)s.%(ext)s',
+                embedChapters: false,
+                embedMetadata: true,
+                embedThumbnail: true,
+                extractAudio: true,
+                audioFormat: 'mp3',
+                audioQuality: '0',
+            },
+            {
+                id: 'mobile-friendly',
+                name: 'Mobile Friendly',
+                isDefault: false,
+                quality: '720',
+                format: 'bestvideo[height<=720]+bestaudio/best',
+                outputTemplate: '%(title)s.%(ext)s',
+                embedChapters: true,
+                embedMetadata: false,
+                embedThumbnail: false,
+                extractAudio: false,
+                audioFormat: 'mp3',
+                audioQuality: '5',
+            },
+            {
+                id: 'playlist-archive',
+                name: 'Playlist Archive',
+                isDefault: false,
+                quality: '1080',
+                format: 'bestvideo[height<=1080]+bestaudio/best',
+                outputTemplate: '%(playlist_index)s - %(title)s.%(ext)s',
+                embedChapters: true,
+                embedMetadata: true,
+                embedThumbnail: true,
+                extractAudio: false,
+                audioFormat: 'mp3',
+                audioQuality: '0',
+            },
+        ];
+
+        // ============== UTILITY FUNCTIONS ==============
+        const detectPlatform = (url) => {
+            if (!url) return null;
+            if (url.includes('youtube.com') || url.includes('youtu.be')) return 'youtube';
+            if (url.includes('vimeo.com')) return 'vimeo';
+            if (url.includes('twitter.com') || url.includes('x.com')) return 'twitter';
+            if (url.includes('tiktok.com')) return 'tiktok';
+            if (url.includes('instagram.com')) return 'instagram';
+            if (url.includes('twitch.tv')) return 'twitch';
+            return 'other';
+        };
+
+        const detectUrlType = (url) => {
+            if (!url) return null;
+            if (url.includes('/playlist') || url.includes('list=')) return 'playlist';
+            if (url.includes('/shorts/')) return 'shorts';
+            if (url.includes('@') && url.includes('/videos')) return 'channel';
+            return 'video';
+        };
+
+        const generateCommand = (url, preset, extraOptions = {}) => {
+            if (!url) return '';
+            
+            let cmd = 'yt-dlp';
+            
+            // Format selection
+            if (preset.extractAudio) {
+                cmd += ` -x --audio-format ${preset.audioFormat}`;
+                if (preset.audioQuality !== '0') {
+                    cmd += ` --audio-quality ${preset.audioQuality}`;
+                }
+            } else {
+                cmd += ` -f "${preset.format}"`;
+            }
+            
+            // Output template
+            cmd += ` -o "${preset.outputTemplate}"`;
+            
+            // Embed options
+            if (preset.embedChapters) cmd += ' --embed-chapters';
+            if (preset.embedMetadata) cmd += ' --embed-metadata';
+            if (preset.embedThumbnail) cmd += ' --embed-thumbnail';
+            
+            // Extra options
+            if (extraOptions.downloadSubtitles) cmd += ' --write-subs --sub-langs "en.*"';
+            if (extraOptions.limitRate) cmd += ` --limit-rate ${extraOptions.limitRate}`;
+            if (extraOptions.outputPath) cmd += ` -P "${extraOptions.outputPath}"`;
+            if (extraOptions.cookiesFile) cmd += ` --cookies "${extraOptions.cookiesFile}"`;
+            if (extraOptions.sponsorBlock) cmd += ' --sponsorblock-remove all';
+            if (extraOptions.noPlaylist) cmd += ' --no-playlist';
+            if (extraOptions.playlistItems) cmd += ` --playlist-items "${extraOptions.playlistItems}"`;
+            
+            // URL
+            cmd += ` "${url}"`;
+            
+            return cmd;
+        };
+
+        // ============== COMPONENTS ==============
+        
+        // Toast notification
+        const Toast = ({ message, type = 'success', onClose }) => {
+            useEffect(() => {
+                const timer = setTimeout(onClose, 3000);
+                return () => clearTimeout(timer);
+            }, [onClose]);
+            
+            const bgColor = type === 'success' ? 'var(--accent-green)' : type === 'error' ? 'var(--accent-red)' : 'var(--accent-blue)';
+            
+            return (
+                <div style={{
+                    position: 'fixed',
+                    bottom: '24px',
+                    right: '24px',
+                    padding: '12px 20px',
+                    background: bgColor,
+                    borderRadius: '8px',
+                    color: 'white',
+                    fontWeight: '500',
+                    fontSize: '14px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                    boxShadow: '0 8px 32px rgba(0,0,0,0.4)',
+                    zIndex: 1000,
+                    animation: 'fadeIn 0.3s ease-out'
+                }}>
+                    <Icons.Check />
+                    {message}
+                </div>
+            );
+        };
+
+        // Header
+        const Header = ({ activeTab, setActiveTab }) => {
+            const tabs = [
+                { id: 'extract', label: 'Extract', icon: Icons.Download },
+                { id: 'aianalysis', label: 'AI Analysis', icon: Icons.Brain },
+                { id: 'presets', label: 'Presets', icon: Icons.Layers },
+                { id: 'converter', label: 'Timestamp Converter', icon: Icons.Clock },
+                { id: 'history', label: 'History', icon: Icons.History },
+            ];
+            
+            return (
+                <header style={{
+                    marginBottom: '24px',
+                    paddingBottom: '20px',
+                    borderBottom: '1px solid var(--border)'
+                }}>
+                    <div style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        marginBottom: '20px'
+                    }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                            <div style={{
+                                width: '44px',
+                                height: '44px',
+                                borderRadius: '12px',
+                                background: 'linear-gradient(135deg, var(--accent-blue) 0%, var(--accent-purple) 100%)',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                boxShadow: '0 4px 20px rgba(59,130,246,0.3)'
+                            }}>
+                                <Icons.Zap />
+                            </div>
+                            <div>
+                                <h1 style={{
+                                    fontSize: '24px',
+                                    fontWeight: '700',
+                                    letterSpacing: '-0.5px'
+                                }}>Video Extract Pro</h1>
+                                <p style={{
+                                    fontSize: '13px',
+                                    color: 'var(--text-muted)',
+                                    fontFamily: 'var(--font-mono)'
+                                }}>yt-dlp command generator</p>
+                            </div>
+                        </div>
+                        <a 
+                            href="https://github.com/yt-dlp/yt-dlp"
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            style={{
+                                padding: '8px 16px',
+                                background: 'var(--bg-elevated)',
+                                border: '1px solid var(--border)',
+                                borderRadius: '8px',
+                                color: 'var(--text-secondary)',
+                                textDecoration: 'none',
+                                fontSize: '13px',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '6px',
+                                transition: 'all 0.2s'
+                            }}
+                        >
+                            <Icons.Code />
+                            yt-dlp docs
+                        </a>
+                    </div>
+                    
+                    <nav style={{
+                        display: 'flex',
+                        gap: '4px',
+                        background: 'var(--bg-surface)',
+                        padding: '4px',
+                        borderRadius: '12px',
+                        width: 'fit-content'
+                    }}>
+                        {tabs.map(tab => (
+                            <button
+                                key={tab.id}
+                                onClick={() => setActiveTab(tab.id)}
+                                style={{
+                                    padding: '10px 20px',
+                                    background: activeTab === tab.id ? 'var(--bg-elevated)' : 'transparent',
+                                    border: 'none',
+                                    borderRadius: '8px',
+                                    color: activeTab === tab.id ? 'var(--text-primary)' : 'var(--text-secondary)',
+                                    fontSize: '14px',
+                                    fontWeight: '500',
+                                    cursor: 'pointer',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '8px',
+                                    transition: 'all 0.2s'
+                                }}
+                            >
+                                <tab.icon />
+                                {tab.label}
+                            </button>
+                        ))}
+                    </nav>
+                </header>
+            );
+        };
+
+        // URL Input Section
+        const URLInput = ({ url, setUrl, platform, urlType }) => (
+            <div style={{
+                background: 'var(--bg-surface)',
+                borderRadius: '16px',
+                padding: '24px',
+                marginBottom: '20px',
+                border: '1px solid var(--border)'
+            }}>
+                <div style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '10px',
+                    marginBottom: '16px'
+                }}>
+                    <Icons.Globe />
+                    <h2 style={{ fontSize: '18px', fontWeight: '600' }}>Video URL</h2>
+                </div>
+                
+                <div style={{
+                    display: 'flex',
+                    gap: '12px',
+                    alignItems: 'stretch'
+                }}>
+                    <div style={{
+                        flex: 1,
+                        position: 'relative'
+                    }}>
+                        <input
+                            type="text"
+                            value={url}
+                            onChange={(e) => setUrl(e.target.value)}
+                            placeholder="https://youtube.com/watch?v=..."
+                            style={{
+                                width: '100%',
+                                padding: '14px 16px',
+                                paddingRight: platform ? '100px' : '16px',
+                                background: 'var(--bg-elevated)',
+                                border: '1px solid var(--border)',
+                                borderRadius: '10px',
+                                color: 'var(--text-primary)',
+                                fontSize: '15px',
+                                fontFamily: 'var(--font-mono)',
+                                outline: 'none',
+                                transition: 'border-color 0.2s'
+                            }}
+                            onFocus={(e) => e.target.style.borderColor = 'var(--border-focus)'}
+                            onBlur={(e) => e.target.style.borderColor = 'var(--border)'}
+                        />
+                        {platform && (
+                            <span style={{
+                                position: 'absolute',
+                                right: '12px',
+                                top: '50%',
+                                transform: 'translateY(-50%)',
+                                padding: '4px 10px',
+                                background: platform === 'youtube' ? 'rgba(239,68,68,0.15)' : 'rgba(59,130,246,0.15)',
+                                color: platform === 'youtube' ? '#ef4444' : 'var(--accent-blue)',
+                                borderRadius: '6px',
+                                fontSize: '12px',
+                                fontWeight: '500',
+                                textTransform: 'capitalize'
+                            }}>
+                                {platform}
+                            </span>
+                        )}
+                    </div>
+                </div>
+                
+                <div style={{
+                    display: 'flex',
+                    gap: '8px',
+                    marginTop: '12px',
+                    flexWrap: 'wrap'
+                }}>
+                    <span style={{ fontSize: '13px', color: 'var(--text-muted)' }}>Supports:</span>
+                    {['YouTube', 'Playlists', 'Shorts', 'Vimeo', 'Twitter', 'TikTok'].map(p => (
+                        <span
+                            key={p}
+                            style={{
+                                padding: '4px 10px',
+                                background: 'var(--bg-elevated)',
+                                borderRadius: '6px',
+                                fontSize: '12px',
+                                color: 'var(--text-secondary)',
+                                border: '1px solid var(--border)'
+                            }}
+                        >
+                            {p}
+                        </span>
+                    ))}
+                </div>
+            </div>
+        );
+
+        // Preset Card
+        const PresetCard = ({ preset, isSelected, onSelect, onEdit, onDelete, onToggleDefault }) => (
+            <div
+                onClick={() => onSelect(preset)}
+                style={{
+                    background: isSelected ? 'rgba(59,130,246,0.1)' : 'var(--bg-surface)',
+                    borderRadius: '12px',
+                    padding: '16px',
+                    border: isSelected ? '1px solid var(--accent-blue)' : '1px solid var(--border)',
+                    cursor: 'pointer',
+                    transition: 'all 0.2s'
+                }}
+            >
+                <div style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'start',
+                    marginBottom: '12px'
+                }}>
+                    <div>
+                        <h3 style={{ fontSize: '15px', fontWeight: '600', marginBottom: '4px' }}>
+                            {preset.name}
+                        </h3>
+                        <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                            <span style={{
+                                padding: '3px 8px',
+                                background: preset.extractAudio ? 'rgba(168,85,247,0.15)' : 'rgba(34,197,94,0.15)',
+                                color: preset.extractAudio ? 'var(--accent-purple)' : 'var(--accent-green)',
+                                borderRadius: '4px',
+                                fontSize: '11px',
+                                fontWeight: '500'
+                            }}>
+                                {preset.extractAudio ? 'Audio' : preset.quality + 'p'}
+                            </span>
+                            {preset.isDefault && (
+                                <span style={{
+                                    padding: '3px 8px',
+                                    background: 'rgba(234,179,8,0.15)',
+                                    color: 'var(--accent-yellow)',
+                                    borderRadius: '4px',
+                                    fontSize: '11px',
+                                    fontWeight: '500',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '4px'
+                                }}>
+                                    <Icons.Star /> Default
+                                </span>
+                            )}
+                        </div>
+                    </div>
+                    <button
+                        onClick={(e) => { e.stopPropagation(); onToggleDefault(preset.id); }}
+                        style={{
+                            background: 'none',
+                            border: 'none',
+                            color: preset.isDefault ? 'var(--accent-yellow)' : 'var(--text-muted)',
+                            cursor: 'pointer',
+                            padding: '4px'
+                        }}
+                    >
+                        {preset.isDefault ? <Icons.Star /> : <Icons.StarOutline />}
+                    </button>
+                </div>
+                
+                <div style={{
+                    fontFamily: 'var(--font-mono)',
+                    fontSize: '12px',
+                    color: 'var(--text-muted)',
+                    marginBottom: '12px'
+                }}>
+                    Output: {preset.outputTemplate}
+                </div>
+                
+                <div style={{ display: 'flex', gap: '6px', marginBottom: '12px', flexWrap: 'wrap' }}>
+                    {preset.embedChapters && (
+                        <span style={{
+                            padding: '3px 8px',
+                            background: 'rgba(34,197,94,0.1)',
+                            color: 'var(--accent-green)',
+                            borderRadius: '4px',
+                            fontSize: '11px'
+                        }}>Chapters</span>
+                    )}
+                    {preset.embedMetadata && (
+                        <span style={{
+                            padding: '3px 8px',
+                            background: 'rgba(59,130,246,0.1)',
+                            color: 'var(--accent-blue)',
+                            borderRadius: '4px',
+                            fontSize: '11px'
+                        }}>Metadata</span>
+                    )}
+                    {preset.embedThumbnail && (
+                        <span style={{
+                            padding: '3px 8px',
+                            background: 'rgba(168,85,247,0.1)',
+                            color: 'var(--accent-purple)',
+                            borderRadius: '4px',
+                            fontSize: '11px'
+                        }}>Thumbnail</span>
+                    )}
+                </div>
+                
+                <div style={{
+                    display: 'flex',
+                    gap: '8px'
+                }}>
+                    <button
+                        onClick={(e) => { e.stopPropagation(); onEdit(preset); }}
+                        style={{
+                            flex: 1,
+                            padding: '8px',
+                            background: 'var(--bg-elevated)',
+                            border: '1px solid var(--border)',
+                            borderRadius: '8px',
+                            color: 'var(--text-secondary)',
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            gap: '6px',
+                            fontSize: '13px'
+                        }}
+                    >
+                        <Icons.Edit /> Edit
+                    </button>
+                    <button
+                        onClick={(e) => { e.stopPropagation(); onDelete(preset.id); }}
+                        style={{
+                            padding: '8px 12px',
+                            background: 'rgba(239,68,68,0.1)',
+                            border: '1px solid rgba(239,68,68,0.2)',
+                            borderRadius: '8px',
+                            color: 'var(--accent-red)',
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center'
+                        }}
+                    >
+                        <Icons.Trash />
+                    </button>
+                </div>
+            </div>
+        );
+
+        // Command Preview
+        const CommandPreview = ({ command, onCopy, copied }) => (
+            <div style={{
+                background: 'var(--bg-surface)',
+                borderRadius: '16px',
+                padding: '24px',
+                border: '1px solid var(--border)'
+            }}>
+                <div style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    marginBottom: '16px'
+                }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                        <Icons.Terminal />
+                        <h2 style={{ fontSize: '18px', fontWeight: '600' }}>Generated Command</h2>
+                    </div>
+                    <button
+                        onClick={onCopy}
+                        style={{
+                            padding: '8px 16px',
+                            background: copied ? 'var(--accent-green)' : 'var(--accent-blue)',
+                            border: 'none',
+                            borderRadius: '8px',
+                            color: 'white',
+                            fontSize: '13px',
+                            fontWeight: '500',
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '6px',
+                            transition: 'all 0.2s'
+                        }}
+                    >
+                        {copied ? <><Icons.Check /> Copied!</> : <><Icons.Copy /> Copy</>}
+                    </button>
+                </div>
+                
+                <pre style={{
+                    background: '#0a0a0c',
+                    borderRadius: '10px',
+                    padding: '16px',
+                    fontFamily: 'var(--font-mono)',
+                    fontSize: '13px',
+                    color: 'var(--accent-cyan)',
+                    overflowX: 'auto',
+                    whiteSpace: 'pre-wrap',
+                    wordBreak: 'break-all',
+                    lineHeight: '1.6',
+                    border: '1px solid var(--border)'
+                }}>
+                    {command || '# Enter a URL and select a preset to generate a command'}
+                </pre>
+            </div>
+        );
+
+        // Extra Options
+        const ExtraOptions = ({ options, setOptions }) => {
+            const [expanded, setExpanded] = useState(false);
+            
+            return (
+                <div style={{
+                    background: 'var(--bg-surface)',
+                    borderRadius: '16px',
+                    padding: '20px',
+                    marginBottom: '20px',
+                    border: '1px solid var(--border)'
+                }}>
+                    <button
+                        onClick={() => setExpanded(!expanded)}
+                        style={{
+                            width: '100%',
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            alignItems: 'center',
+                            background: 'none',
+                            border: 'none',
+                            color: 'var(--text-primary)',
+                            cursor: 'pointer',
+                            padding: 0
+                        }}
+                    >
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                            <Icons.Settings />
+                            <span style={{ fontSize: '16px', fontWeight: '600' }}>Advanced Options</span>
+                        </div>
+                        <div style={{
+                            transform: expanded ? 'rotate(180deg)' : 'rotate(0)',
+                            transition: 'transform 0.2s'
+                        }}>
+                            <Icons.ChevronDown />
+                        </div>
+                    </button>
+                    
+                    {expanded && (
+                        <div style={{
+                            marginTop: '20px',
+                            display: 'grid',
+                            gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))',
+                            gap: '16px',
+                            animation: 'fadeIn 0.2s ease-out'
+                        }}>
+                            <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer' }}>
+                                <input
+                                    type="checkbox"
+                                    checked={options.downloadSubtitles}
+                                    onChange={(e) => setOptions({ ...options, downloadSubtitles: e.target.checked })}
+                                    style={{ width: '18px', height: '18px', accentColor: 'var(--accent-blue)' }}
+                                />
+                                <span style={{ fontSize: '14px', color: 'var(--text-secondary)' }}>Download Subtitles</span>
+                            </label>
+                            
+                            <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer' }}>
+                                <input
+                                    type="checkbox"
+                                    checked={options.sponsorBlock}
+                                    onChange={(e) => setOptions({ ...options, sponsorBlock: e.target.checked })}
+                                    style={{ width: '18px', height: '18px', accentColor: 'var(--accent-blue)' }}
+                                />
+                                <span style={{ fontSize: '14px', color: 'var(--text-secondary)' }}>Remove Sponsors</span>
+                            </label>
+                            
+                            <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer' }}>
+                                <input
+                                    type="checkbox"
+                                    checked={options.noPlaylist}
+                                    onChange={(e) => setOptions({ ...options, noPlaylist: e.target.checked })}
+                                    style={{ width: '18px', height: '18px', accentColor: 'var(--accent-blue)' }}
+                                />
+                                <span style={{ fontSize: '14px', color: 'var(--text-secondary)' }}>Single Video Only</span>
+                            </label>
+                            
+                            <div>
+                                <label style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '6px', display: 'block' }}>
+                                    Output Path
+                                </label>
+                                <input
+                                    type="text"
+                                    value={options.outputPath || ''}
+                                    onChange={(e) => setOptions({ ...options, outputPath: e.target.value })}
+                                    placeholder="~/Downloads"
+                                    style={{
+                                        width: '100%',
+                                        padding: '8px 12px',
+                                        background: 'var(--bg-elevated)',
+                                        border: '1px solid var(--border)',
+                                        borderRadius: '6px',
+                                        color: 'var(--text-primary)',
+                                        fontSize: '13px',
+                                        fontFamily: 'var(--font-mono)'
+                                    }}
+                                />
+                            </div>
+                            
+                            <div>
+                                <label style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '6px', display: 'block' }}>
+                                    Rate Limit
+                                </label>
+                                <input
+                                    type="text"
+                                    value={options.limitRate || ''}
+                                    onChange={(e) => setOptions({ ...options, limitRate: e.target.value })}
+                                    placeholder="5M"
+                                    style={{
+                                        width: '100%',
+                                        padding: '8px 12px',
+                                        background: 'var(--bg-elevated)',
+                                        border: '1px solid var(--border)',
+                                        borderRadius: '6px',
+                                        color: 'var(--text-primary)',
+                                        fontSize: '13px',
+                                        fontFamily: 'var(--font-mono)'
+                                    }}
+                                />
+                            </div>
+                            
+                            <div>
+                                <label style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '6px', display: 'block' }}>
+                                    Playlist Items
+                                </label>
+                                <input
+                                    type="text"
+                                    value={options.playlistItems || ''}
+                                    onChange={(e) => setOptions({ ...options, playlistItems: e.target.value })}
+                                    placeholder="1-5, 10"
+                                    style={{
+                                        width: '100%',
+                                        padding: '8px 12px',
+                                        background: 'var(--bg-elevated)',
+                                        border: '1px solid var(--border)',
+                                        borderRadius: '6px',
+                                        color: 'var(--text-primary)',
+                                        fontSize: '13px',
+                                        fontFamily: 'var(--font-mono)'
+                                    }}
+                                />
+                            </div>
+                        </div>
+                    )}
+                </div>
+            );
+        };
+
+        // Timestamp Converter
+        const TimestampConverter = () => {
+            const [inputFormat, setInputFormat] = useState('timecode');
+            const [outputFormat, setOutputFormat] = useState('youtube');
+            const [orderFormat, setOrderFormat] = useState('title-first');
+            const [input, setInput] = useState('');
+            const [output, setOutput] = useState('');
+            const [copied, setCopied] = useState(false);
+
+            const parseTimecode = (line, order) => {
+                // Parse different formats
+                // Title First: "Intro 00:00:00"
+                // Timestamp First: "00:00:00 Intro"
+                const timeRegex = /(\d{1,2}:)?(\d{1,2}):(\d{2})/;
+                const match = line.match(timeRegex);
+                if (!match) return null;
+                
+                const timeStr = match[0];
+                const parts = timeStr.split(':').map(Number);
+                let seconds = 0;
+                if (parts.length === 3) {
+                    seconds = parts[0] * 3600 + parts[1] * 60 + parts[2];
+                } else {
+                    seconds = parts[0] * 60 + parts[1];
+                }
+                
+                let title = line.replace(timeStr, '').trim();
+                // Remove common separators
+                title = title.replace(/^[-–—:]\s*/, '').replace(/\s*[-–—:]$/, '').trim();
+                
+                return { title, seconds, timeStr };
+            };
+
+            const formatTime = (seconds, format) => {
+                const h = Math.floor(seconds / 3600);
+                const m = Math.floor((seconds % 3600) / 60);
+                const s = seconds % 60;
+                
+                if (format === 'youtube') {
+                    if (h > 0) {
+                        return `${h}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+                    }
+                    return `${m}:${s.toString().padStart(2, '0')}`;
+                } else if (format === 'timecode') {
+                    return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}:00`;
+                } else if (format === 'ffmpeg') {
+                    return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}.000`;
+                }
+                return '';
+            };
+
+            const convert = () => {
+                const lines = input.split('\n').filter(l => l.trim());
+                const chapters = lines.map(line => parseTimecode(line, orderFormat)).filter(Boolean);
+                
+                if (outputFormat === 'youtube') {
+                    const result = chapters.map(ch => 
+                        orderFormat === 'title-first' 
+                            ? `${ch.title} ${formatTime(ch.seconds, 'youtube')}`
+                            : `${formatTime(ch.seconds, 'youtube')} ${ch.title}`
+                    ).join('\n');
+                    setOutput(result);
+                } else if (outputFormat === 'ffmpeg') {
+                    let result = ';FFMETADATA1\n';
+                    chapters.forEach((ch, i) => {
+                        const nextCh = chapters[i + 1];
+                        const endTime = nextCh ? nextCh.seconds * 1000 : (ch.seconds + 60) * 1000;
+                        result += `\n[CHAPTER]\nTIMEBASE=1/1000\nSTART=${ch.seconds * 1000}\nEND=${endTime}\ntitle=${ch.title}\n`;
+                    });
+                    setOutput(result);
+                } else if (outputFormat === 'timecode') {
+                    const result = chapters.map(ch => 
+                        orderFormat === 'title-first'
+                            ? `${ch.title} ${formatTime(ch.seconds, 'timecode')}`
+                            : `${formatTime(ch.seconds, 'timecode')} ${ch.title}`
+                    ).join('\n');
+                    setOutput(result);
+                }
+            };
+
+            const handleCopy = () => {
+                navigator.clipboard.writeText(output);
+                setCopied(true);
+                setTimeout(() => setCopied(false), 2000);
+            };
+
+            return (
+                <div className="animate-in">
+                    <div style={{
+                        background: 'var(--bg-surface)',
+                        borderRadius: '16px',
+                        padding: '24px',
+                        border: '1px solid var(--border)',
+                        marginBottom: '20px'
+                    }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '8px' }}>
+                            <Icons.Sparkles />
+                            <h2 style={{ fontSize: '20px', fontWeight: '600' }}>Chapter Timestamp Converter</h2>
+                        </div>
+                        <p style={{ color: 'var(--text-muted)', fontSize: '14px' }}>
+                            Convert chapter timestamps between YouTube Chapters, Timecode, and FFMPEG metadata formats.
+                        </p>
+                    </div>
+                    
+                    <div style={{
+                        display: 'grid',
+                        gridTemplateColumns: 'repeat(3, 1fr)',
+                        gap: '16px',
+                        marginBottom: '20px'
+                    }}>
+                        <div>
+                            <label style={{ fontSize: '13px', color: 'var(--text-muted)', marginBottom: '8px', display: 'block' }}>From</label>
+                            <select
+                                value={inputFormat}
+                                onChange={(e) => setInputFormat(e.target.value)}
+                                style={{
+                                    width: '100%',
+                                    padding: '12px 16px',
+                                    background: 'var(--bg-surface)',
+                                    border: '1px solid var(--border)',
+                                    borderRadius: '10px',
+                                    color: 'var(--text-primary)',
+                                    fontSize: '14px',
+                                    cursor: 'pointer'
+                                }}
+                            >
+                                <option value="timecode">Timecode</option>
+                                <option value="youtube">YouTube Chapters</option>
+                                <option value="ffmpeg">FFMPEG Metadata</option>
+                            </select>
+                        </div>
+                        
+                        <div>
+                            <label style={{ fontSize: '13px', color: 'var(--text-muted)', marginBottom: '8px', display: 'block' }}>To</label>
+                            <select
+                                value={outputFormat}
+                                onChange={(e) => setOutputFormat(e.target.value)}
+                                style={{
+                                    width: '100%',
+                                    padding: '12px 16px',
+                                    background: 'var(--bg-surface)',
+                                    border: '1px solid var(--border)',
+                                    borderRadius: '10px',
+                                    color: 'var(--text-primary)',
+                                    fontSize: '14px',
+                                    cursor: 'pointer'
+                                }}
+                            >
+                                <option value="youtube">YouTube Chapters</option>
+                                <option value="timecode">Timecode</option>
+                                <option value="ffmpeg">FFMPEG Metadata</option>
+                            </select>
+                        </div>
+                        
+                        <div>
+                            <label style={{ fontSize: '13px', color: 'var(--text-muted)', marginBottom: '8px', display: 'block' }}>Order</label>
+                            <select
+                                value={orderFormat}
+                                onChange={(e) => setOrderFormat(e.target.value)}
+                                style={{
+                                    width: '100%',
+                                    padding: '12px 16px',
+                                    background: 'var(--bg-surface)',
+                                    border: '1px solid var(--border)',
+                                    borderRadius: '10px',
+                                    color: 'var(--text-primary)',
+                                    fontSize: '14px',
+                                    cursor: 'pointer'
+                                }}
+                            >
+                                <option value="title-first">Title First</option>
+                                <option value="timestamp-first">Timestamp First</option>
+                            </select>
+                        </div>
+                    </div>
+                    
+                    <div style={{
+                        display: 'grid',
+                        gridTemplateColumns: '1fr 1fr',
+                        gap: '20px'
+                    }}>
+                        <div>
+                            <div style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '8px',
+                                marginBottom: '12px'
+                            }}>
+                                <Icons.Clock />
+                                <label style={{ fontSize: '14px', fontWeight: '500' }}>Input</label>
+                            </div>
+                            <textarea
+                                value={input}
+                                onChange={(e) => setInput(e.target.value)}
+                                placeholder={`Paste your timecode list here.\nSupports:\nTitle First: Intro 00:00:00:00\nTimestamp First: 00:00:00:00 Intro`}
+                                style={{
+                                    width: '100%',
+                                    height: '300px',
+                                    padding: '16px',
+                                    background: 'var(--bg-surface)',
+                                    border: '1px solid var(--border)',
+                                    borderRadius: '12px',
+                                    color: 'var(--text-primary)',
+                                    fontSize: '14px',
+                                    fontFamily: 'var(--font-mono)',
+                                    resize: 'vertical',
+                                    outline: 'none'
+                                }}
+                            />
+                            <button
+                                onClick={convert}
+                                style={{
+                                    width: '100%',
+                                    marginTop: '12px',
+                                    padding: '14px',
+                                    background: 'linear-gradient(135deg, var(--accent-blue) 0%, var(--accent-purple) 100%)',
+                                    border: 'none',
+                                    borderRadius: '10px',
+                                    color: 'white',
+                                    fontSize: '15px',
+                                    fontWeight: '600',
+                                    cursor: 'pointer',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    gap: '8px'
+                                }}
+                            >
+                                <Icons.ArrowRight /> Convert
+                            </button>
+                        </div>
+                        
+                        <div>
+                            <div style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'space-between',
+                                marginBottom: '12px'
+                            }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                    <Icons.Terminal />
+                                    <label style={{ fontSize: '14px', fontWeight: '500' }}>Output</label>
+                                </div>
+                                {output && (
+                                    <button
+                                        onClick={handleCopy}
+                                        style={{
+                                            padding: '6px 12px',
+                                            background: copied ? 'var(--accent-green)' : 'var(--bg-elevated)',
+                                            border: '1px solid var(--border)',
+                                            borderRadius: '6px',
+                                            color: copied ? 'white' : 'var(--text-secondary)',
+                                            fontSize: '12px',
+                                            cursor: 'pointer',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            gap: '4px'
+                                        }}
+                                    >
+                                        {copied ? <><Icons.Check /> Copied</> : <><Icons.Copy /> Copy</>}
+                                    </button>
+                                )}
+                            </div>
+                            <textarea
+                                value={output}
+                                readOnly
+                                placeholder="Converted output will appear here..."
+                                style={{
+                                    width: '100%',
+                                    height: '300px',
+                                    padding: '16px',
+                                    background: '#0a0a0c',
+                                    border: '1px solid var(--border)',
+                                    borderRadius: '12px',
+                                    color: 'var(--accent-cyan)',
+                                    fontSize: '14px',
+                                    fontFamily: 'var(--font-mono)',
+                                    resize: 'vertical',
+                                    outline: 'none'
+                                }}
+                            />
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        // Presets Page
+        const PresetsPage = ({ presets, setPresets, onEditPreset }) => {
+            const handleToggleDefault = (id) => {
+                setPresets(presets.map(p => ({
+                    ...p,
+                    isDefault: p.id === id
+                })));
+            };
+
+            const handleDelete = (id) => {
+                if (presets.length <= 1) return;
+                setPresets(presets.filter(p => p.id !== id));
+            };
+
+            const handleNewPreset = () => {
+                const newPreset = {
+                    id: `preset-${Date.now()}`,
+                    name: 'New Preset',
+                    isDefault: false,
+                    quality: '1080',
+                    format: 'bestvideo[height<=1080]+bestaudio/best',
+                    outputTemplate: '%(title)s.%(ext)s',
+                    embedChapters: true,
+                    embedMetadata: true,
+                    embedThumbnail: false,
+                    extractAudio: false,
+                    audioFormat: 'mp3',
+                    audioQuality: '0',
+                };
+                setPresets([...presets, newPreset]);
+                onEditPreset(newPreset);
+            };
+
+            return (
+                <div className="animate-in">
+                    <div style={{
+                        background: 'var(--bg-surface)',
+                        borderRadius: '16px',
+                        padding: '24px',
+                        border: '1px solid var(--border)',
+                        marginBottom: '20px'
+                    }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '8px' }}>
+                            <Icons.Settings />
+                            <h2 style={{ fontSize: '20px', fontWeight: '600' }}>Configurations</h2>
+                        </div>
+                        <p style={{ color: 'var(--text-muted)', fontSize: '14px' }}>
+                            Save and manage your download presets for quick access.
+                        </p>
+                    </div>
+                    
+                    <button
+                        onClick={handleNewPreset}
+                        style={{
+                            width: '100%',
+                            padding: '16px',
+                            background: 'linear-gradient(135deg, var(--accent-blue) 0%, var(--accent-purple) 100%)',
+                            border: 'none',
+                            borderRadius: '12px',
+                            color: 'white',
+                            fontSize: '15px',
+                            fontWeight: '600',
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            gap: '8px',
+                            marginBottom: '20px'
+                        }}
+                    >
+                        <Icons.Plus /> New Preset
+                    </button>
+                    
+                    <div style={{
+                        display: 'grid',
+                        gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))',
+                        gap: '16px'
+                    }}>
+                        {presets.map(preset => (
+                            <PresetCard
+                                key={preset.id}
+                                preset={preset}
+                                isSelected={false}
+                                onSelect={() => {}}
+                                onEdit={onEditPreset}
+                                onDelete={handleDelete}
+                                onToggleDefault={handleToggleDefault}
+                            />
+                        ))}
+                    </div>
+                </div>
+            );
+        };
+
+        // History Page
+        const HistoryPage = ({ history, onUseCommand, onClearHistory }) => (
+            <div className="animate-in">
+                <div style={{
+                    background: 'var(--bg-surface)',
+                    borderRadius: '16px',
+                    padding: '24px',
+                    border: '1px solid var(--border)',
+                    marginBottom: '20px'
+                }}>
+                    <div style={{
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'start'
+                    }}>
+                        <div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '8px' }}>
+                                <Icons.History />
+                                <h2 style={{ fontSize: '20px', fontWeight: '600' }}>Command History</h2>
+                            </div>
+                            <p style={{ color: 'var(--text-muted)', fontSize: '14px' }}>
+                                Recently generated commands for quick access.
+                            </p>
+                        </div>
+                        {history.length > 0 && (
+                            <button
+                                onClick={onClearHistory}
+                                style={{
+                                    padding: '8px 16px',
+                                    background: 'rgba(239,68,68,0.1)',
+                                    border: '1px solid rgba(239,68,68,0.2)',
+                                    borderRadius: '8px',
+                                    color: 'var(--accent-red)',
+                                    fontSize: '13px',
+                                    cursor: 'pointer',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '6px'
+                                }}
+                            >
+                                <Icons.Trash /> Clear All
+                            </button>
+                        )}
+                    </div>
+                </div>
+                
+                {history.length === 0 ? (
+                    <div style={{
+                        textAlign: 'center',
+                        padding: '60px 20px',
+                        color: 'var(--text-muted)'
+                    }}>
+                        <Icons.History />
+                        <p style={{ marginTop: '12px' }}>No commands in history yet</p>
+                    </div>
+                ) : (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                        {history.map((item, index) => (
+                            <div
+                                key={index}
+                                style={{
+                                    background: 'var(--bg-surface)',
+                                    borderRadius: '12px',
+                                    padding: '16px',
+                                    border: '1px solid var(--border)'
+                                }}
+                            >
+                                <div style={{
+                                    display: 'flex',
+                                    justifyContent: 'space-between',
+                                    alignItems: 'start',
+                                    marginBottom: '12px'
+                                }}>
+                                    <div>
+                                        <div style={{ fontSize: '13px', color: 'var(--text-muted)', marginBottom: '4px' }}>
+                                            {new Date(item.timestamp).toLocaleString()}
+                                        </div>
+                                        <div style={{ fontSize: '14px', color: 'var(--text-secondary)' }}>
+                                            {item.preset}
+                                        </div>
+                                    </div>
+                                    <button
+                                        onClick={() => onUseCommand(item)}
+                                        style={{
+                                            padding: '6px 12px',
+                                            background: 'var(--accent-blue)',
+                                            border: 'none',
+                                            borderRadius: '6px',
+                                            color: 'white',
+                                            fontSize: '12px',
+                                            cursor: 'pointer'
+                                        }}
+                                    >
+                                        Use
+                                    </button>
+                                </div>
+                                <pre style={{
+                                    background: '#0a0a0c',
+                                    borderRadius: '8px',
+                                    padding: '12px',
+                                    fontFamily: 'var(--font-mono)',
+                                    fontSize: '12px',
+                                    color: 'var(--accent-cyan)',
+                                    overflow: 'auto',
+                                    whiteSpace: 'pre-wrap',
+                                    wordBreak: 'break-all'
+                                }}>
+                                    {item.command}
+                                </pre>
+                            </div>
+                        ))}
+                    </div>
+                )}
+            </div>
+        );
+
+        // Preset Editor Modal
+        const PresetEditor = ({ preset, onSave, onClose }) => {
+            const [editedPreset, setEditedPreset] = useState({ ...preset });
+            
+            const handleSave = () => {
+                onSave(editedPreset);
+                onClose();
+            };
+
+            return (
+                <div style={{
+                    position: 'fixed',
+                    top: 0,
+                    left: 0,
+                    right: 0,
+                    bottom: 0,
+                    background: 'rgba(0,0,0,0.8)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    zIndex: 100,
+                    padding: '20px'
+                }}>
+                    <div style={{
+                        background: 'var(--bg-surface)',
+                        borderRadius: '20px',
+                        padding: '28px',
+                        maxWidth: '500px',
+                        width: '100%',
+                        maxHeight: '90vh',
+                        overflow: 'auto',
+                        border: '1px solid var(--border)',
+                        animation: 'fadeIn 0.2s ease-out'
+                    }}>
+                        <div style={{
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            alignItems: 'center',
+                            marginBottom: '24px'
+                        }}>
+                            <h2 style={{ fontSize: '20px', fontWeight: '600' }}>Edit Preset</h2>
+                            <button
+                                onClick={onClose}
+                                style={{
+                                    background: 'none',
+                                    border: 'none',
+                                    color: 'var(--text-muted)',
+                                    cursor: 'pointer',
+                                    padding: '4px'
+                                }}
+                            >
+                                <Icons.X />
+                            </button>
+                        </div>
+                        
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                            <div>
+                                <label style={{ fontSize: '13px', color: 'var(--text-muted)', marginBottom: '6px', display: 'block' }}>
+                                    Preset Name
+                                </label>
+                                <input
+                                    type="text"
+                                    value={editedPreset.name}
+                                    onChange={(e) => setEditedPreset({ ...editedPreset, name: e.target.value })}
+                                    style={{
+                                        width: '100%',
+                                        padding: '12px 16px',
+                                        background: 'var(--bg-elevated)',
+                                        border: '1px solid var(--border)',
+                                        borderRadius: '10px',
+                                        color: 'var(--text-primary)',
+                                        fontSize: '14px'
+                                    }}
+                                />
+                            </div>
+                            
+                            <div>
+                                <label style={{ fontSize: '13px', color: 'var(--text-muted)', marginBottom: '6px', display: 'block' }}>
+                                    Quality
+                                </label>
+                                <select
+                                    value={editedPreset.quality}
+                                    onChange={(e) => {
+                                        const q = e.target.value;
+                                        setEditedPreset({
+                                            ...editedPreset,
+                                            quality: q,
+                                            format: q === 'best' ? 'bestaudio' : `bestvideo[height<=${q}]+bestaudio/best`
+                                        });
+                                    }}
+                                    style={{
+                                        width: '100%',
+                                        padding: '12px 16px',
+                                        background: 'var(--bg-elevated)',
+                                        border: '1px solid var(--border)',
+                                        borderRadius: '10px',
+                                        color: 'var(--text-primary)',
+                                        fontSize: '14px'
+                                    }}
+                                >
+                                    <option value="2160">4K (2160p)</option>
+                                    <option value="1440">1440p</option>
+                                    <option value="1080">1080p</option>
+                                    <option value="720">720p</option>
+                                    <option value="480">480p</option>
+                                    <option value="best">Best Audio Only</option>
+                                </select>
+                            </div>
+                            
+                            <div>
+                                <label style={{ fontSize: '13px', color: 'var(--text-muted)', marginBottom: '6px', display: 'block' }}>
+                                    Output Template
+                                </label>
+                                <input
+                                    type="text"
+                                    value={editedPreset.outputTemplate}
+                                    onChange={(e) => setEditedPreset({ ...editedPreset, outputTemplate: e.target.value })}
+                                    style={{
+                                        width: '100%',
+                                        padding: '12px 16px',
+                                        background: 'var(--bg-elevated)',
+                                        border: '1px solid var(--border)',
+                                        borderRadius: '10px',
+                                        color: 'var(--text-primary)',
+                                        fontSize: '14px',
+                                        fontFamily: 'var(--font-mono)'
+                                    }}
+                                />
+                                <p style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '6px' }}>
+                                    Variables: %(title)s, %(ext)s, %(playlist_index)s, %(uploader)s
+                                </p>
+                            </div>
+                            
+                            <div>
+                                <label style={{ fontSize: '13px', color: 'var(--text-muted)', marginBottom: '12px', display: 'block' }}>
+                                    Embed Options
+                                </label>
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                                    {[
+                                        { key: 'embedChapters', label: 'Embed Chapters' },
+                                        { key: 'embedMetadata', label: 'Embed Metadata' },
+                                        { key: 'embedThumbnail', label: 'Embed Thumbnail' },
+                                        { key: 'extractAudio', label: 'Extract Audio Only' },
+                                    ].map(opt => (
+                                        <label key={opt.key} style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer' }}>
+                                            <input
+                                                type="checkbox"
+                                                checked={editedPreset[opt.key]}
+                                                onChange={(e) => setEditedPreset({ ...editedPreset, [opt.key]: e.target.checked })}
+                                                style={{ width: '18px', height: '18px', accentColor: 'var(--accent-blue)' }}
+                                            />
+                                            <span style={{ fontSize: '14px', color: 'var(--text-secondary)' }}>{opt.label}</span>
+                                        </label>
+                                    ))}
+                                </div>
+                            </div>
+                            
+                            {editedPreset.extractAudio && (
+                                <div>
+                                    <label style={{ fontSize: '13px', color: 'var(--text-muted)', marginBottom: '6px', display: 'block' }}>
+                                        Audio Format
+                                    </label>
+                                    <select
+                                        value={editedPreset.audioFormat}
+                                        onChange={(e) => setEditedPreset({ ...editedPreset, audioFormat: e.target.value })}
+                                        style={{
+                                            width: '100%',
+                                            padding: '12px 16px',
+                                            background: 'var(--bg-elevated)',
+                                            border: '1px solid var(--border)',
+                                            borderRadius: '10px',
+                                            color: 'var(--text-primary)',
+                                            fontSize: '14px'
+                                        }}
+                                    >
+                                        <option value="mp3">MP3</option>
+                                        <option value="m4a">M4A</option>
+                                        <option value="flac">FLAC</option>
+                                        <option value="wav">WAV</option>
+                                        <option value="opus">Opus</option>
+                                    </select>
+                                </div>
+                            )}
+                        </div>
+                        
+                        <div style={{
+                            display: 'flex',
+                            gap: '12px',
+                            marginTop: '24px'
+                        }}>
+                            <button
+                                onClick={onClose}
+                                style={{
+                                    flex: 1,
+                                    padding: '14px',
+                                    background: 'var(--bg-elevated)',
+                                    border: '1px solid var(--border)',
+                                    borderRadius: '10px',
+                                    color: 'var(--text-secondary)',
+                                    fontSize: '14px',
+                                    fontWeight: '500',
+                                    cursor: 'pointer'
+                                }}
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                onClick={handleSave}
+                                style={{
+                                    flex: 1,
+                                    padding: '14px',
+                                    background: 'var(--accent-blue)',
+                                    border: 'none',
+                                    borderRadius: '10px',
+                                    color: 'white',
+                                    fontSize: '14px',
+                                    fontWeight: '500',
+                                    cursor: 'pointer'
+                                }}
+                            >
+                                Save Changes
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        // ============== AI ANALYSIS PAGE ==============
+        const getApiBase = () => {
+            return localStorage.getItem('vep-api-url') || 'http://localhost:8000/api/v1';
+        };
+        const getDownloadDir = () => {
+            return localStorage.getItem('vep-download-dir') || '';
+        };
+
+        const AIAnalysisPage = () => {
+            const [apiBase, setApiBase] = useState(getApiBase);
+            const [downloadDir, setDownloadDir] = useState(getDownloadDir);
+            const [showSettings, setShowSettings] = useState(false);
+            const [apiUrlInput, setApiUrlInput] = useState(getApiBase);
+            const [downloadDirInput, setDownloadDirInput] = useState(getDownloadDir);
+            const [connectionStatus, setConnectionStatus] = useState('checking'); // 'checking', 'connected', 'disconnected'
+            const [videoUrl, setVideoUrl] = useState('');
+            const [videoFile, setVideoFile] = useState(null);
+            const [uploadProgress, setUploadProgress] = useState(0);
+            const [videoId, setVideoId] = useState(null);
+            const [jobId, setJobId] = useState(null);
+            const [analysisStatus, setAnalysisStatus] = useState(null);
+            const [analysisProgress, setAnalysisProgress] = useState(0);
+            const [results, setResults] = useState(null);
+            const [error, setError] = useState(null);
+            const [isLoading, setIsLoading] = useState(false);
+
+            // Check backend connection on mount and when API URL changes
+            useEffect(() => {
+                const checkConnection = async () => {
+                    setConnectionStatus('checking');
+                    try {
+                        // Extract base URL (remove /api/v1)
+                        const baseUrl = apiBase.replace(/\/api\/v1\/?$/, '');
+                        const response = await fetch(`${baseUrl}/health`, {
+                            method: 'GET',
+                            signal: AbortSignal.timeout(5000)
+                        });
+                        if (response.ok) {
+                            setConnectionStatus('connected');
+                        } else {
+                            setConnectionStatus('disconnected');
+                        }
+                    } catch (err) {
+                        setConnectionStatus('disconnected');
+                    }
+                };
+                checkConnection();
+            }, [apiBase]);
+
+            // Save settings to localStorage
+            const saveSettings = () => {
+                const url = apiUrlInput.trim();
+                if (url) {
+                    localStorage.setItem('vep-api-url', url);
+                    setApiBase(url);
+                }
+                const dir = downloadDirInput.trim();
+                localStorage.setItem('vep-download-dir', dir);
+                setDownloadDir(dir);
+                setShowSettings(false);
+            };
+
+            // Handle file upload
+            const handleFileUpload = async (e) => {
+                const file = e.target.files[0];
+                if (!file) return;
+
+                setVideoFile(file);
+                setError(null);
+                setIsLoading(true);
+                setUploadProgress(0);
+
+                const formData = new FormData();
+                formData.append('file', file);
+
+                try {
+                    const response = await fetch(`${apiBase}/videos/upload`, {
+                        method: 'POST',
+                        body: formData,
+                    });
+
+                    if (!response.ok) {
+                        const err = await response.json();
+                        throw new Error(err.detail || 'Upload failed');
+                    }
+
+                    const video = await response.json();
+                    setVideoId(video.id);
+                    setUploadProgress(100);
+                } catch (err) {
+                    setError(err.message);
+                } finally {
+                    setIsLoading(false);
+                }
+            };
+
+            // Extract URL from text (handles pasted commands)
+            const extractUrl = (text) => {
+                // Match common video platform URLs
+                const urlPattern = /(https?:\/\/(?:www\.)?(?:youtube\.com\/watch\?v=[\w-]+|youtu\.be\/[\w-]+|vimeo\.com\/\d+|twitter\.com\/\w+\/status\/\d+|x\.com\/\w+\/status\/\d+|tiktok\.com\/@[\w.]+\/video\/\d+|instagram\.com\/(?:p|reel)\/[\w-]+|twitch\.tv\/videos\/\d+|dailymotion\.com\/video\/[\w-]+|facebook\.com\/[\w.]+\/videos\/\d+)[^\s"']*)|(https?:\/\/[^\s"']+)/gi;
+                const matches = text.match(urlPattern);
+                return matches ? matches[0] : text.trim();
+            };
+
+            // Poll video status until ready
+            const waitForVideo = async (id) => {
+                const maxAttempts = 120; // 2 minutes max
+                for (let i = 0; i < maxAttempts; i++) {
+                    await new Promise(r => setTimeout(r, 1000));
+                    try {
+                        const res = await fetch(`${apiBase}/videos/${id}`);
+                        const video = await res.json();
+
+                        if (video.status === 'ready') {
+                            return video;
+                        } else if (video.status === 'error') {
+                            throw new Error(video.error_message || 'Download failed');
+                        }
+                        // Still downloading, continue polling
+                        setAnalysisStatus(`Downloading... ${video.title || ''}`);
+                    } catch (err) {
+                        throw err;
+                    }
+                }
+                throw new Error('Download timeout');
+            };
+
+            // Handle URL submission - downloads, waits, then auto-analyzes
+            const handleUrlSubmit = async () => {
+                if (!videoUrl) return;
+
+                setError(null);
+                setIsLoading(true);
+                setAnalysisStatus('Starting download...');
+                setAnalysisProgress(0);
+                setResults(null);
+
+                // Extract actual URL if user pasted a command
+                const cleanUrl = extractUrl(videoUrl);
+
+                try {
+                    // Step 1: Start download
+                    const downloadPayload = { url: cleanUrl };
+                    if (downloadDir) {
+                        downloadPayload.output_dir = downloadDir;
+                    }
+                    const response = await fetch(`${apiBase}/videos/download`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(downloadPayload),
+                    });
+
+                    if (!response.ok) {
+                        const err = await response.json();
+                        throw new Error(err.detail || 'Download failed');
+                    }
+
+                    const video = await response.json();
+                    setVideoId(video.id);
+
+                    // Step 2: Wait for download to complete
+                    setAnalysisStatus('Downloading video...');
+                    const readyVideo = await waitForVideo(video.id);
+
+                    // Step 3: Auto-start analysis
+                    setAnalysisStatus('Starting AI analysis...');
+                    await startAnalysisForVideo(video.id);
+
+                } catch (err) {
+                    setError(err.message);
+                    setIsLoading(false);
+                    setAnalysisStatus(null);
+                }
+            };
+
+            // Start analysis for a specific video ID
+            const startAnalysisForVideo = async (vidId) => {
+                const response = await fetch(`${apiBase}/analysis/${vidId}/start`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        transcribe: true,
+                        diarize: false,
+                        detect_scenes: true,
+                        analyze_visuals: false,
+                        detect_hooks: true,
+                        suggest_clips: true,
+                        llm_analysis: false,
+                    }),
+                });
+
+                if (!response.ok) {
+                    const err = await response.json();
+                    throw new Error(err.detail || 'Failed to start analysis');
+                }
+
+                const job = await response.json();
+                setJobId(job.id);
+
+                // Poll for analysis progress
+                pollAnalysisStatus(job.id);
+            };
+
+            // Poll analysis status
+            const pollAnalysisStatus = async (id) => {
+                const poll = async () => {
+                    try {
+                        const response = await fetch(`${apiBase}/analysis/${id}/status`);
+                        const data = await response.json();
+                        setAnalysisStatus(data.current_stage || data.status);
+                        setAnalysisProgress(data.progress);
+
+                        if (data.status === 'completed') {
+                            fetchResults(id);
+                        } else if (data.status === 'failed') {
+                            setError(data.error_message || 'Analysis failed');
+                            setIsLoading(false);
+                        } else {
+                            setTimeout(poll, 1000);
+                        }
+                    } catch (err) {
+                        setError('Lost connection to server');
+                        setIsLoading(false);
+                    }
+                };
+                poll();
+            };
+
+            // Fetch results
+            const fetchResults = async (id) => {
+                try {
+                    const response = await fetch(`${apiBase}/analysis/${id}/full`);
+                    const data = await response.json();
+                    setResults(data);
+                } catch (err) {
+                    setError(err.message);
+                } finally {
+                    setIsLoading(false);
+                }
+            };
+
+            // Export clip
+            const exportClip = async (clipId) => {
+                try {
+                    setAnalysisStatus('Exporting clip...');
+
+                    // Start export
+                    const response = await fetch(`${apiBase}/clips/${clipId}/export`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ clip_id: clipId, format: 'mp4' }),
+                    });
+
+                    if (!response.ok) {
+                        throw new Error('Failed to start export');
+                    }
+
+                    // Poll for export completion
+                    const pollExport = async () => {
+                        for (let i = 0; i < 60; i++) { // Max 60 seconds
+                            const detailRes = await fetch(`${apiBase}/clips/detail/${clipId}`);
+                            if (detailRes.ok) {
+                                const clip = await detailRes.json();
+                                if (clip.exported && clip.export_path) {
+                                    // Export complete, trigger download
+                                    setAnalysisStatus(null);
+                                    window.open(`${apiBase}/clips/${clipId}/download`, '_blank');
+                                    return;
+                                }
+                            }
+                            await new Promise(r => setTimeout(r, 1000));
+                            setAnalysisStatus(`Exporting clip... ${i + 1}s`);
+                        }
+                        throw new Error('Export timeout');
+                    };
+
+                    await pollExport();
+                } catch (err) {
+                    setError(err.message);
+                    setAnalysisStatus(null);
+                }
+            };
+
+            // Reset state
+            const resetState = () => {
+                setVideoUrl('');
+                setVideoFile(null);
+                setVideoId(null);
+                setJobId(null);
+                setAnalysisStatus(null);
+                setAnalysisProgress(0);
+                setResults(null);
+                setError(null);
+                setIsLoading(false);
+            };
+
+            const formatDuration = (seconds) => {
+                const mins = Math.floor(seconds / 60);
+                const secs = Math.floor(seconds % 60);
+                return `${mins}:${secs.toString().padStart(2, '0')}`;
+            };
+
+            const getStatusColor = (status) => {
+                switch (status) {
+                    case 'completed': return 'var(--accent-green)';
+                    case 'failed': return 'var(--accent-red)';
+                    case 'processing': return 'var(--accent-blue)';
+                    default: return 'var(--accent-yellow)';
+                }
+            };
+
+            return (
+                <div className="animate-in">
+                    {/* Settings Modal */}
+                    {showSettings && (
+                        <div style={{
+                            position: 'fixed',
+                            top: 0,
+                            left: 0,
+                            right: 0,
+                            bottom: 0,
+                            background: 'rgba(0,0,0,0.5)',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            zIndex: 1000
+                        }} onClick={() => setShowSettings(false)}>
+                            <div style={{
+                                background: 'var(--bg-surface)',
+                                borderRadius: '16px',
+                                padding: '24px',
+                                width: '90%',
+                                maxWidth: '450px',
+                                border: '1px solid var(--border)'
+                            }} onClick={e => e.stopPropagation()}>
+                                <h3 style={{ fontSize: '18px', fontWeight: '600', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                    <Icons.Settings />
+                                    Settings
+                                </h3>
+                                <div style={{ marginBottom: '16px' }}>
+                                    <label style={{ fontSize: '13px', color: 'var(--text-muted)', display: 'block', marginBottom: '8px' }}>
+                                        Download Directory
+                                    </label>
+                                    <input
+                                        type="text"
+                                        value={downloadDirInput}
+                                        onChange={e => setDownloadDirInput(e.target.value)}
+                                        placeholder="D:\Videos\Downloads (leave empty for default)"
+                                        style={{
+                                            width: '100%',
+                                            padding: '12px 16px',
+                                            background: 'var(--bg-elevated)',
+                                            border: '1px solid var(--border)',
+                                            borderRadius: '8px',
+                                            color: 'var(--text)',
+                                            fontSize: '14px'
+                                        }}
+                                    />
+                                    <p style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '8px' }}>
+                                        Where to save downloaded videos. Leave empty for default (backend/storage/videos)
+                                    </p>
+                                </div>
+                                <div style={{ marginBottom: '16px' }}>
+                                    <label style={{ fontSize: '13px', color: 'var(--text-muted)', display: 'block', marginBottom: '8px' }}>
+                                        Backend API URL
+                                    </label>
+                                    <input
+                                        type="text"
+                                        value={apiUrlInput}
+                                        onChange={e => setApiUrlInput(e.target.value)}
+                                        placeholder="http://localhost:8000/api/v1"
+                                        style={{
+                                            width: '100%',
+                                            padding: '12px 16px',
+                                            background: 'var(--bg-elevated)',
+                                            border: '1px solid var(--border)',
+                                            borderRadius: '8px',
+                                            color: 'var(--text)',
+                                            fontSize: '14px'
+                                        }}
+                                    />
+                                    <p style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '8px' }}>
+                                        The full API URL including /api/v1 suffix
+                                    </p>
+                                </div>
+                                <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
+                                    <button
+                                        onClick={() => setShowSettings(false)}
+                                        style={{
+                                            padding: '10px 20px',
+                                            background: 'var(--bg-elevated)',
+                                            border: '1px solid var(--border)',
+                                            borderRadius: '8px',
+                                            color: 'var(--text)',
+                                            cursor: 'pointer'
+                                        }}
+                                    >
+                                        Cancel
+                                    </button>
+                                    <button
+                                        onClick={saveSettings}
+                                        style={{
+                                            padding: '10px 20px',
+                                            background: 'linear-gradient(135deg, var(--accent-purple) 0%, var(--accent-blue) 100%)',
+                                            border: 'none',
+                                            borderRadius: '8px',
+                                            color: 'white',
+                                            cursor: 'pointer',
+                                            fontWeight: '500'
+                                        }}
+                                    >
+                                        Save
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Header Section */}
+                    <div style={{
+                        background: 'linear-gradient(135deg, rgba(168,85,247,0.1) 0%, rgba(59,130,246,0.1) 100%)',
+                        borderRadius: '16px',
+                        padding: '24px',
+                        marginBottom: '20px',
+                        border: '1px solid var(--border)'
+                    }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '12px' }}>
+                            <div style={{
+                                width: '40px',
+                                height: '40px',
+                                borderRadius: '10px',
+                                background: 'linear-gradient(135deg, var(--accent-purple) 0%, var(--accent-blue) 100%)',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center'
+                            }}>
+                                <Icons.Brain />
+                            </div>
+                            <div style={{ flex: 1 }}>
+                                <h2 style={{ fontSize: '20px', fontWeight: '600' }}>AI Video Analysis</h2>
+                                <p style={{ fontSize: '13px', color: 'var(--text-muted)' }}>
+                                    Analyze videos for viral clips, hooks, and engagement insights
+                                </p>
+                            </div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                                {/* Connection Status */}
+                                <div style={{
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '6px',
+                                    padding: '6px 12px',
+                                    background: 'var(--bg-elevated)',
+                                    borderRadius: '8px',
+                                    fontSize: '12px'
+                                }}>
+                                    <div style={{
+                                        width: '8px',
+                                        height: '8px',
+                                        borderRadius: '50%',
+                                        background: connectionStatus === 'connected' ? 'var(--accent-green)' :
+                                                   connectionStatus === 'checking' ? 'var(--accent-yellow)' : 'var(--accent-red)'
+                                    }} />
+                                    <span style={{ color: 'var(--text-muted)' }}>
+                                        {connectionStatus === 'connected' ? 'Connected' :
+                                         connectionStatus === 'checking' ? 'Checking...' : 'Disconnected'}
+                                    </span>
+                                </div>
+                                {/* Settings Button */}
+                                <button
+                                    onClick={() => {
+                                        setApiUrlInput(apiBase);
+                                        setDownloadDirInput(downloadDir);
+                                        setShowSettings(true);
+                                    }}
+                                    style={{
+                                        padding: '8px',
+                                        background: 'var(--bg-elevated)',
+                                        border: '1px solid var(--border)',
+                                        borderRadius: '8px',
+                                        color: 'var(--text-muted)',
+                                        cursor: 'pointer',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        justifyContent: 'center'
+                                    }}
+                                    title="API Settings"
+                                >
+                                    <Icons.Settings />
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Connection Warning */}
+                    {connectionStatus === 'disconnected' && (
+                        <div style={{
+                            background: 'rgba(251,191,36,0.1)',
+                            border: '1px solid var(--accent-yellow)',
+                            borderRadius: '12px',
+                            padding: '16px',
+                            marginBottom: '20px'
+                        }}>
+                            <div style={{ display: 'flex', alignItems: 'flex-start', gap: '12px' }}>
+                                <Icons.AlertCircle />
+                                <div>
+                                    <div style={{ fontWeight: '500', marginBottom: '4px' }}>Backend Not Reachable</div>
+                                    <p style={{ fontSize: '13px', color: 'var(--text-muted)', margin: 0 }}>
+                                        Unable to connect to the backend at <code style={{ background: 'var(--bg-elevated)', padding: '2px 6px', borderRadius: '4px' }}>{apiBase.replace(/\/api\/v1\/?$/, '')}</code>.
+                                        Make sure the backend server is running.
+                                    </p>
+                                    <p style={{ fontSize: '13px', color: 'var(--text-muted)', margin: '8px 0 0 0' }}>
+                                        Start the backend: <code style={{ background: 'var(--bg-elevated)', padding: '2px 6px', borderRadius: '4px' }}>cd backend && uvicorn app.main:app --reload</code>
+                                    </p>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Error Display */}
+                    {error && (
+                        <div style={{
+                            background: 'rgba(239,68,68,0.1)',
+                            border: '1px solid var(--accent-red)',
+                            borderRadius: '12px',
+                            padding: '16px',
+                            marginBottom: '20px',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '12px'
+                        }}>
+                            <Icons.AlertCircle />
+                            <span>{error}</span>
+                            <button onClick={() => setError(null)} style={{
+                                marginLeft: 'auto',
+                                background: 'none',
+                                border: 'none',
+                                color: 'var(--text-muted)',
+                                cursor: 'pointer'
+                            }}>
+                                <Icons.X />
+                            </button>
+                        </div>
+                    )}
+
+                    {/* Input Section (show when no video loaded) */}
+                    {!videoId && !results && (
+                        <div style={{
+                            background: 'var(--bg-surface)',
+                            borderRadius: '16px',
+                            padding: '24px',
+                            marginBottom: '20px',
+                            border: '1px solid var(--border)'
+                        }}>
+                            <h3 style={{ fontSize: '16px', fontWeight: '600', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                <Icons.Upload />
+                                Upload or Enter Video URL
+                            </h3>
+
+                            {/* URL Input */}
+                            <div style={{ marginBottom: '16px' }}>
+                                <div style={{ display: 'flex', gap: '12px' }}>
+                                    <input
+                                        type="text"
+                                        value={videoUrl}
+                                        onChange={(e) => setVideoUrl(e.target.value)}
+                                        placeholder="https://youtube.com/watch?v=... or video URL"
+                                        style={{
+                                            flex: 1,
+                                            padding: '14px 16px',
+                                            background: 'var(--bg-elevated)',
+                                            border: '1px solid var(--border)',
+                                            borderRadius: '10px',
+                                            color: 'var(--text-primary)',
+                                            fontSize: '14px',
+                                            fontFamily: 'var(--font-mono)'
+                                        }}
+                                    />
+                                    <button
+                                        onClick={handleUrlSubmit}
+                                        disabled={!videoUrl || isLoading}
+                                        style={{
+                                            padding: '14px 24px',
+                                            background: videoUrl && !isLoading ? 'var(--accent-blue)' : 'var(--bg-elevated)',
+                                            border: 'none',
+                                            borderRadius: '10px',
+                                            color: videoUrl && !isLoading ? 'white' : 'var(--text-muted)',
+                                            fontSize: '14px',
+                                            fontWeight: '500',
+                                            cursor: videoUrl && !isLoading ? 'pointer' : 'not-allowed',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            gap: '8px'
+                                        }}
+                                    >
+                                        {isLoading ? <Icons.Loader /> : <Icons.Download />}
+                                        Download
+                                    </button>
+                                </div>
+                            </div>
+
+                            {/* Divider */}
+                            <div style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '16px',
+                                margin: '20px 0',
+                                color: 'var(--text-muted)',
+                                fontSize: '13px'
+                            }}>
+                                <div style={{ flex: 1, height: '1px', background: 'var(--border)' }} />
+                                <span>OR</span>
+                                <div style={{ flex: 1, height: '1px', background: 'var(--border)' }} />
+                            </div>
+
+                            {/* File Upload */}
+                            <label style={{
+                                display: 'flex',
+                                flexDirection: 'column',
+                                alignItems: 'center',
+                                padding: '40px',
+                                background: 'var(--bg-elevated)',
+                                border: '2px dashed var(--border)',
+                                borderRadius: '12px',
+                                cursor: 'pointer',
+                                transition: 'all 0.2s'
+                            }}>
+                                <Icons.Upload />
+                                <span style={{ marginTop: '12px', fontSize: '14px', color: 'var(--text-secondary)' }}>
+                                    {videoFile ? videoFile.name : 'Click to upload video file'}
+                                </span>
+                                <span style={{ marginTop: '4px', fontSize: '12px', color: 'var(--text-muted)' }}>
+                                    MP4, WebM, MKV up to 2GB
+                                </span>
+                                <input
+                                    type="file"
+                                    accept="video/*"
+                                    onChange={handleFileUpload}
+                                    style={{ display: 'none' }}
+                                />
+                            </label>
+                        </div>
+                    )}
+
+                    {/* Video Ready - Start Analysis */}
+                    {videoId && !jobId && !results && (
+                        <div style={{
+                            background: 'var(--bg-surface)',
+                            borderRadius: '16px',
+                            padding: '24px',
+                            marginBottom: '20px',
+                            border: '1px solid var(--border)',
+                            textAlign: 'center'
+                        }}>
+                            <div style={{
+                                width: '60px',
+                                height: '60px',
+                                borderRadius: '50%',
+                                background: 'rgba(34,197,94,0.15)',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                margin: '0 auto 16px'
+                            }}>
+                                <Icons.Check />
+                            </div>
+                            <h3 style={{ fontSize: '18px', fontWeight: '600', marginBottom: '8px' }}>
+                                Video Ready for Analysis
+                            </h3>
+                            <p style={{ fontSize: '14px', color: 'var(--text-muted)', marginBottom: '24px' }}>
+                                Your video has been processed. Start AI analysis to find viral clips.
+                            </p>
+                            <button
+                                onClick={() => startAnalysisForVideo(videoId)}
+                                disabled={isLoading}
+                                style={{
+                                    padding: '16px 32px',
+                                    background: 'linear-gradient(135deg, var(--accent-purple) 0%, var(--accent-blue) 100%)',
+                                    border: 'none',
+                                    borderRadius: '12px',
+                                    color: 'white',
+                                    fontSize: '16px',
+                                    fontWeight: '600',
+                                    cursor: 'pointer',
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: '8px',
+                                    boxShadow: '0 4px 20px rgba(168,85,247,0.3)'
+                                }}
+                            >
+                                <Icons.Wand />
+                                Start AI Analysis
+                            </button>
+                        </div>
+                    )}
+
+                    {/* Analysis Progress */}
+                    {analysisStatus && analysisStatus !== 'completed' && !results && (
+                        <div style={{
+                            background: 'var(--bg-surface)',
+                            borderRadius: '16px',
+                            padding: '24px',
+                            marginBottom: '20px',
+                            border: '1px solid var(--border)'
+                        }}>
+                            <h3 style={{ fontSize: '16px', fontWeight: '600', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                <Icons.Loader />
+                                Analyzing Video...
+                            </h3>
+
+                            <div style={{
+                                background: 'var(--bg-elevated)',
+                                borderRadius: '8px',
+                                height: '8px',
+                                overflow: 'hidden',
+                                marginBottom: '12px'
+                            }}>
+                                <div style={{
+                                    width: `${analysisProgress}%`,
+                                    height: '100%',
+                                    background: 'linear-gradient(90deg, var(--accent-purple), var(--accent-blue))',
+                                    transition: 'width 0.3s ease'
+                                }} />
+                            </div>
+
+                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px' }}>
+                                <span style={{ color: 'var(--text-muted)' }}>
+                                    {analysisStatus.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}
+                                </span>
+                                <span style={{ color: 'var(--text-secondary)' }}>{Math.round(analysisProgress)}%</span>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Results */}
+                    {results && (
+                        <div>
+                            {/* Summary Cards */}
+                            <div style={{
+                                display: 'grid',
+                                gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
+                                gap: '16px',
+                                marginBottom: '20px'
+                            }}>
+                                {[
+                                    { label: 'Clips Found', value: results.clips?.length || 0, icon: Icons.Scissors, color: 'var(--accent-purple)' },
+                                    { label: 'Duration', value: formatDuration(results.job?.total_duration || 0), icon: Icons.Clock, color: 'var(--accent-blue)' },
+                                    { label: 'Speakers', value: results.job?.speaker_count || 1, icon: Icons.Users, color: 'var(--accent-cyan)' },
+                                    { label: 'Scenes', value: results.job?.scene_count || 0, icon: Icons.Layers, color: 'var(--accent-green)' },
+                                ].map((stat, i) => (
+                                    <div key={i} style={{
+                                        background: 'var(--bg-surface)',
+                                        borderRadius: '12px',
+                                        padding: '20px',
+                                        border: '1px solid var(--border)'
+                                    }}>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '8px' }}>
+                                            <div style={{ color: stat.color }}><stat.icon /></div>
+                                            <span style={{ fontSize: '13px', color: 'var(--text-muted)' }}>{stat.label}</span>
+                                        </div>
+                                        <div style={{ fontSize: '24px', fontWeight: '700' }}>{stat.value}</div>
+                                    </div>
+                                ))}
+                            </div>
+
+                            {/* Suggested Clips */}
+                            {results.clips && results.clips.length > 0 && (
+                                <div style={{
+                                    background: 'var(--bg-surface)',
+                                    borderRadius: '16px',
+                                    padding: '24px',
+                                    marginBottom: '20px',
+                                    border: '1px solid var(--border)'
+                                }}>
+                                    <h3 style={{ fontSize: '18px', fontWeight: '600', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                        <Icons.TrendingUp />
+                                        Suggested Viral Clips
+                                    </h3>
+
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                                        {results.clips.map((clip, index) => (
+                                            <div key={clip.id} style={{
+                                                background: 'var(--bg-elevated)',
+                                                borderRadius: '12px',
+                                                padding: '16px',
+                                                border: '1px solid var(--border)'
+                                            }}>
+                                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start', marginBottom: '12px' }}>
+                                                    <div>
+                                                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
+                                                            <span style={{
+                                                                width: '24px',
+                                                                height: '24px',
+                                                                borderRadius: '50%',
+                                                                background: 'var(--accent-purple)',
+                                                                display: 'flex',
+                                                                alignItems: 'center',
+                                                                justifyContent: 'center',
+                                                                fontSize: '12px',
+                                                                fontWeight: '600'
+                                                            }}>
+                                                                {index + 1}
+                                                            </span>
+                                                            <h4 style={{ fontSize: '15px', fontWeight: '600' }}>
+                                                                {clip.title || `Clip ${index + 1}`}
+                                                            </h4>
+                                                        </div>
+                                                        <p style={{ fontSize: '13px', color: 'var(--text-muted)' }}>
+                                                            {formatDuration(clip.start_time)} - {formatDuration(clip.end_time)} ({formatDuration(clip.duration)})
+                                                        </p>
+                                                    </div>
+                                                    <div style={{ textAlign: 'right' }}>
+                                                        <div style={{
+                                                            fontSize: '24px',
+                                                            fontWeight: '700',
+                                                            color: clip.virality_score >= 70 ? 'var(--accent-green)' : clip.virality_score >= 50 ? 'var(--accent-yellow)' : 'var(--text-secondary)'
+                                                        }}>
+                                                            {Math.round(clip.virality_score)}
+                                                        </div>
+                                                        <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Virality Score</div>
+                                                    </div>
+                                                </div>
+
+                                                {/* Score Breakdown */}
+                                                <div style={{
+                                                    display: 'grid',
+                                                    gridTemplateColumns: 'repeat(5, 1fr)',
+                                                    gap: '8px',
+                                                    marginBottom: '12px'
+                                                }}>
+                                                    {[
+                                                        { label: 'Emotion', value: clip.emotional_resonance },
+                                                        { label: 'Share', value: clip.shareability },
+                                                        { label: 'Unique', value: clip.uniqueness },
+                                                        { label: 'Hook', value: clip.hook_strength },
+                                                        { label: 'Quality', value: clip.production_quality },
+                                                    ].map(score => (
+                                                        <div key={score.label} style={{ textAlign: 'center' }}>
+                                                            <div style={{ fontSize: '14px', fontWeight: '600' }}>{Math.round(score.value)}</div>
+                                                            <div style={{ fontSize: '10px', color: 'var(--text-muted)' }}>{score.label}</div>
+                                                        </div>
+                                                    ))}
+                                                </div>
+
+                                                {/* Transcript excerpt */}
+                                                {clip.transcript_excerpt && (
+                                                    <p style={{
+                                                        fontSize: '13px',
+                                                        color: 'var(--text-secondary)',
+                                                        fontStyle: 'italic',
+                                                        marginBottom: '12px',
+                                                        padding: '12px',
+                                                        background: 'var(--bg-base)',
+                                                        borderRadius: '8px',
+                                                        borderLeft: '3px solid var(--accent-purple)'
+                                                    }}>
+                                                        "{clip.transcript_excerpt.slice(0, 200)}..."
+                                                    </p>
+                                                )}
+
+                                                <button
+                                                    onClick={() => exportClip(clip.id)}
+                                                    style={{
+                                                        padding: '10px 16px',
+                                                        background: 'var(--accent-blue)',
+                                                        border: 'none',
+                                                        borderRadius: '8px',
+                                                        color: 'white',
+                                                        fontSize: '13px',
+                                                        fontWeight: '500',
+                                                        cursor: 'pointer',
+                                                        display: 'flex',
+                                                        alignItems: 'center',
+                                                        gap: '6px'
+                                                    }}
+                                                >
+                                                    <Icons.Download />
+                                                    Export Clip
+                                                </button>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* Transcript */}
+                            {results.transcription && (
+                                <div style={{
+                                    background: 'var(--bg-surface)',
+                                    borderRadius: '16px',
+                                    padding: '24px',
+                                    marginBottom: '20px',
+                                    border: '1px solid var(--border)'
+                                }}>
+                                    <h3 style={{ fontSize: '18px', fontWeight: '600', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                        <Icons.FileText />
+                                        Transcript
+                                        <span style={{ fontSize: '13px', fontWeight: '400', color: 'var(--text-muted)' }}>
+                                            ({results.transcription.word_count} words)
+                                        </span>
+                                    </h3>
+                                    <div style={{
+                                        maxHeight: '300px',
+                                        overflow: 'auto',
+                                        padding: '16px',
+                                        background: 'var(--bg-elevated)',
+                                        borderRadius: '12px',
+                                        fontSize: '14px',
+                                        lineHeight: '1.8',
+                                        color: 'var(--text-secondary)'
+                                    }}>
+                                        {results.transcription.full_text}
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* New Analysis Button */}
+                            <div style={{ textAlign: 'center', marginTop: '24px' }}>
+                                <button
+                                    onClick={resetState}
+                                    style={{
+                                        padding: '14px 28px',
+                                        background: 'var(--bg-elevated)',
+                                        border: '1px solid var(--border)',
+                                        borderRadius: '10px',
+                                        color: 'var(--text-secondary)',
+                                        fontSize: '14px',
+                                        fontWeight: '500',
+                                        cursor: 'pointer',
+                                        display: 'inline-flex',
+                                        alignItems: 'center',
+                                        gap: '8px'
+                                    }}
+                                >
+                                    <Icons.Plus />
+                                    Analyze Another Video
+                                </button>
+                            </div>
+                        </div>
+                    )}
+                </div>
+            );
+        };
+
+        // Main App
+        const App = () => {
+            const [activeTab, setActiveTab] = useState('extract');
+            const [url, setUrl] = useState('');
+            const [presets, setPresets] = useState(() => {
+                const saved = localStorage.getItem('vep-presets');
+                return saved ? JSON.parse(saved) : defaultPresets;
+            });
+            const [selectedPreset, setSelectedPreset] = useState(null);
+            const [extraOptions, setExtraOptions] = useState({});
+            const [copied, setCopied] = useState(false);
+            const [toast, setToast] = useState(null);
+            const [editingPreset, setEditingPreset] = useState(null);
+            const [history, setHistory] = useState(() => {
+                const saved = localStorage.getItem('vep-history');
+                return saved ? JSON.parse(saved) : [];
+            });
+
+            // Save presets to localStorage
+            useEffect(() => {
+                localStorage.setItem('vep-presets', JSON.stringify(presets));
+            }, [presets]);
+
+            // Save history to localStorage
+            useEffect(() => {
+                localStorage.setItem('vep-history', JSON.stringify(history));
+            }, [history]);
+
+            // Auto-select default preset
+            useEffect(() => {
+                if (!selectedPreset) {
+                    const defaultPreset = presets.find(p => p.isDefault) || presets[0];
+                    setSelectedPreset(defaultPreset);
+                }
+            }, [presets, selectedPreset]);
+
+            const platform = useMemo(() => detectPlatform(url), [url]);
+            const urlType = useMemo(() => detectUrlType(url), [url]);
+            const command = useMemo(() => {
+                if (!url || !selectedPreset) return '';
+                return generateCommand(url, selectedPreset, extraOptions);
+            }, [url, selectedPreset, extraOptions]);
+
+            const handleCopy = useCallback(() => {
+                if (!command) return;
+                navigator.clipboard.writeText(command);
+                setCopied(true);
+                setTimeout(() => setCopied(false), 2000);
+                
+                // Add to history
+                const historyItem = {
+                    command,
+                    url,
+                    preset: selectedPreset.name,
+                    timestamp: Date.now()
+                };
+                setHistory(prev => [historyItem, ...prev.slice(0, 49)]);
+                setToast({ message: 'Command copied to clipboard!', type: 'success' });
+            }, [command, url, selectedPreset]);
+
+            const handleQuickGenerate = useCallback(() => {
+                if (!url) {
+                    setToast({ message: 'Please enter a URL first', type: 'error' });
+                    return;
+                }
+                const defaultPreset = presets.find(p => p.isDefault) || presets[0];
+                setSelectedPreset(defaultPreset);
+                setTimeout(() => {
+                    const cmd = generateCommand(url, defaultPreset, extraOptions);
+                    navigator.clipboard.writeText(cmd);
+                    setToast({ message: 'Quick command copied!', type: 'success' });
+                    
+                    const historyItem = {
+                        command: cmd,
+                        url,
+                        preset: defaultPreset.name,
+                        timestamp: Date.now()
+                    };
+                    setHistory(prev => [historyItem, ...prev.slice(0, 49)]);
+                }, 100);
+            }, [url, presets, extraOptions]);
+
+            const handleSavePreset = useCallback((updatedPreset) => {
+                setPresets(prev => prev.map(p => p.id === updatedPreset.id ? updatedPreset : p));
+                if (selectedPreset?.id === updatedPreset.id) {
+                    setSelectedPreset(updatedPreset);
+                }
+                setToast({ message: 'Preset saved!', type: 'success' });
+            }, [selectedPreset]);
+
+            const handleUseHistoryCommand = useCallback((item) => {
+                setUrl(item.url);
+                setActiveTab('extract');
+                navigator.clipboard.writeText(item.command);
+                setToast({ message: 'Command copied!', type: 'success' });
+            }, []);
+
+            return (
+                <div className="app">
+                    <Header activeTab={activeTab} setActiveTab={setActiveTab} />
+                    
+                    {activeTab === 'extract' && (
+                        <div className="animate-in">
+                            <URLInput url={url} setUrl={setUrl} platform={platform} urlType={urlType} />
+                            
+                            {/* Quick Generate */}
+                            <div style={{
+                                background: 'var(--bg-surface)',
+                                borderRadius: '16px',
+                                padding: '20px',
+                                marginBottom: '20px',
+                                border: '1px solid var(--border)',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'space-between'
+                            }}>
+                                <div>
+                                    <h3 style={{ fontSize: '16px', fontWeight: '600', marginBottom: '4px' }}>
+                                        Ready for a quick download?
+                                    </h3>
+                                    <p style={{ fontSize: '13px', color: 'var(--text-muted)' }}>
+                                        Use your saved default preset for a one-click command.
+                                    </p>
+                                </div>
+                                <button
+                                    onClick={handleQuickGenerate}
+                                    style={{
+                                        padding: '12px 24px',
+                                        background: 'linear-gradient(135deg, var(--accent-blue) 0%, var(--accent-cyan) 100%)',
+                                        border: 'none',
+                                        borderRadius: '10px',
+                                        color: 'white',
+                                        fontSize: '14px',
+                                        fontWeight: '600',
+                                        cursor: 'pointer',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: '8px',
+                                        boxShadow: '0 4px 20px rgba(59,130,246,0.3)'
+                                    }}
+                                >
+                                    <Icons.Zap /> Quick Generate
+                                </button>
+                            </div>
+                            
+                            {/* Preset Selection */}
+                            <div style={{
+                                background: 'var(--bg-surface)',
+                                borderRadius: '16px',
+                                padding: '24px',
+                                marginBottom: '20px',
+                                border: '1px solid var(--border)'
+                            }}>
+                                <div style={{
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '10px',
+                                    marginBottom: '16px'
+                                }}>
+                                    <Icons.Layers />
+                                    <h2 style={{ fontSize: '18px', fontWeight: '600' }}>Select Preset</h2>
+                                </div>
+                                
+                                <div style={{
+                                    display: 'grid',
+                                    gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))',
+                                    gap: '12px'
+                                }}>
+                                    {presets.map(preset => (
+                                        <div
+                                            key={preset.id}
+                                            onClick={() => setSelectedPreset(preset)}
+                                            style={{
+                                                padding: '14px',
+                                                background: selectedPreset?.id === preset.id ? 'rgba(59,130,246,0.1)' : 'var(--bg-elevated)',
+                                                border: selectedPreset?.id === preset.id ? '1px solid var(--accent-blue)' : '1px solid var(--border)',
+                                                borderRadius: '10px',
+                                                cursor: 'pointer',
+                                                transition: 'all 0.2s'
+                                            }}
+                                        >
+                                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                                <span style={{ fontWeight: '500', fontSize: '14px' }}>{preset.name}</span>
+                                                <div style={{ display: 'flex', gap: '6px' }}>
+                                                    <span style={{
+                                                        padding: '2px 8px',
+                                                        background: preset.extractAudio ? 'rgba(168,85,247,0.15)' : 'rgba(34,197,94,0.15)',
+                                                        color: preset.extractAudio ? 'var(--accent-purple)' : 'var(--accent-green)',
+                                                        borderRadius: '4px',
+                                                        fontSize: '11px'
+                                                    }}>
+                                                        {preset.extractAudio ? 'Audio' : preset.quality + 'p'}
+                                                    </span>
+                                                    {preset.isDefault && (
+                                                        <span style={{ color: 'var(--accent-yellow)' }}><Icons.Star /></span>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                            
+                            <ExtraOptions options={extraOptions} setOptions={setExtraOptions} />
+                            
+                            <CommandPreview command={command} onCopy={handleCopy} copied={copied} />
+                        </div>
+                    )}
+                    
+                    {activeTab === 'presets' && (
+                        <PresetsPage
+                            presets={presets}
+                            setPresets={setPresets}
+                            onEditPreset={setEditingPreset}
+                        />
+                    )}
+                    
+                    {activeTab === 'aianalysis' && <AIAnalysisPage />}
+
+                    {activeTab === 'converter' && <TimestampConverter />}
+
+                    {activeTab === 'history' && (
+                        <HistoryPage
+                            history={history}
+                            onUseCommand={handleUseHistoryCommand}
+                            onClearHistory={() => setHistory([])}
+                        />
+                    )}
+                    
+                    {editingPreset && (
+                        <PresetEditor
+                            preset={editingPreset}
+                            onSave={handleSavePreset}
+                            onClose={() => setEditingPreset(null)}
+                        />
+                    )}
+                    
+                    {toast && (
+                        <Toast
+                            message={toast.message}
+                            type={toast.type}
+                            onClose={() => setToast(null)}
+                        />
+                    )}
+                </div>
+            );
+        };
+
+        ReactDOM.render(<App />, document.getElementById('root'));
+    </script>
+</body>
+</html>

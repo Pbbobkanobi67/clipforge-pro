@@ -1,0 +1,152 @@
+version: '3.8'
+
+services:
+  # ===========================================
+  # API Server
+  # ===========================================
+  api:
+    build:
+      context: .
+      target: production
+    container_name: video-extract-api
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://postgres:postgres@db:5432/video_extract_pro
+      - DATABASE_SYNC_URL=postgresql://postgres:postgres@db:5432/video_extract_pro
+      - REDIS_URL=redis://redis:6379/0
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - HF_TOKEN=${HF_TOKEN}
+      - LLM_PROVIDER=${LLM_PROVIDER:-anthropic}
+      - WHISPER_MODEL=${WHISPER_MODEL:-large-v3}
+      - WHISPER_DEVICE=cuda
+      - WHISPER_COMPUTE_TYPE=float16
+      - YOLO_MODEL=yolov8x.pt
+    volumes:
+      - ./storage:/app/storage
+      - model_cache:/app/.cache
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  # ===========================================
+  # Celery Worker (GPU tasks)
+  # ===========================================
+  worker-gpu:
+    build:
+      context: .
+      target: worker
+    container_name: video-extract-worker-gpu
+    command: celery -A app.workers.celery_app worker --loglevel=info --queues=gpu,analysis --concurrency=1
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://postgres:postgres@db:5432/video_extract_pro
+      - DATABASE_SYNC_URL=postgresql://postgres:postgres@db:5432/video_extract_pro
+      - REDIS_URL=redis://redis:6379/0
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - HF_TOKEN=${HF_TOKEN}
+      - LLM_PROVIDER=${LLM_PROVIDER:-anthropic}
+      - WHISPER_MODEL=${WHISPER_MODEL:-large-v3}
+      - WHISPER_DEVICE=cuda
+      - WHISPER_COMPUTE_TYPE=float16
+      - YOLO_MODEL=yolov8x.pt
+    volumes:
+      - ./storage:/app/storage
+      - model_cache:/app/.cache
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    restart: unless-stopped
+
+  # ===========================================
+  # PostgreSQL Database
+  # ===========================================
+  db:
+    image: postgres:16-alpine
+    container_name: video-extract-db
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_DB=video_extract_pro
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # ===========================================
+  # Redis (Celery broker + cache)
+  # ===========================================
+  redis:
+    image: redis:7-alpine
+    container_name: video-extract-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # ===========================================
+  # Flower (Celery monitoring) - Optional
+  # ===========================================
+  flower:
+    build:
+      context: .
+      target: production
+    container_name: video-extract-flower
+    command: celery -A app.workers.celery_app flower --port=5555
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+    ports:
+      - "5555:5555"
+    depends_on:
+      - redis
+      - worker-gpu
+    restart: unless-stopped
+    profiles:
+      - monitoring
+
+volumes:
+  postgres_data:
+  redis_data:
+  model_cache:
+
+networks:
+  default:
+    name: video-extract-network
