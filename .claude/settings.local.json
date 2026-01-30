@@ -36,7 +36,11 @@
       "Bash(pip install:*)",
       "Bash(ffprobe:*)",
       "Bash(start \"\" \"C:\\\\Users\\\\bob\\\\Downloads\\\\clip_test.mp4\")",
-      "Bash(git init:*)"
+      "Bash(git init:*)",
+      "Bash(git commit:*)",
+      "Bash(gh --version:*)",
+      "Bash(gh repo create:*)",
+      "Bash(git add:*)"
     ]
   }
 }

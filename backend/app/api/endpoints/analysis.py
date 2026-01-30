@@ -4,6 +4,7 @@ import asyncio
 import logging
 import uuid
 from datetime import datetime
+from pathlib import Path
 from typing import AsyncGenerator
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -129,6 +130,12 @@ async def _run_analysis_directly(job_id: str, video_path: str, config: dict):
     """Run the analysis pipeline directly without Celery."""
     from app.models.database import SyncSessionLocal
     from app.services.analysis_pipeline import run_pipeline_async, update_job_status
+
+    # Resolve relative path to absolute
+    video_path_resolved = Path(video_path)
+    if not video_path_resolved.is_absolute():
+        video_path_resolved = Path.cwd() / video_path
+    video_path = str(video_path_resolved)
 
     session = SyncSessionLocal()
     try:

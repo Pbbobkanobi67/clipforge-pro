@@ -1731,30 +1731,41 @@
 
             // Start analysis for a specific video ID
             const startAnalysisForVideo = async (vidId) => {
-                const response = await fetch(`${apiBase}/analysis/${vidId}/start`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        transcribe: true,
-                        diarize: false,
-                        detect_scenes: true,
-                        analyze_visuals: false,
-                        detect_hooks: true,
-                        suggest_clips: true,
-                        llm_analysis: false,
-                    }),
-                });
+                try {
+                    setIsLoading(true);
+                    setError(null);
+                    setAnalysisStatus('Starting analysis...');
+                    setAnalysisProgress(0);
 
-                if (!response.ok) {
-                    const err = await response.json();
-                    throw new Error(err.detail || 'Failed to start analysis');
+                    const response = await fetch(`${apiBase}/analysis/${vidId}/start`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            transcribe: true,
+                            diarize: false,
+                            detect_scenes: true,
+                            analyze_visuals: true,
+                            detect_hooks: true,
+                            suggest_clips: true,
+                            llm_analysis: true,
+                        }),
+                    });
+
+                    if (!response.ok) {
+                        const err = await response.json();
+                        throw new Error(err.detail || 'Failed to start analysis');
+                    }
+
+                    const job = await response.json();
+                    setJobId(job.id);
+
+                    // Poll for analysis progress
+                    pollAnalysisStatus(job.id);
+                } catch (err) {
+                    setError(err.message);
+                    setAnalysisStatus(null);
+                    setIsLoading(false);
                 }
-
-                const job = await response.json();
-                setJobId(job.id);
-
-                // Poll for analysis progress
-                pollAnalysisStatus(job.id);
             };
 
             // Poll analysis status
