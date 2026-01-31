@@ -385,18 +385,35 @@ async def _export_clip_enhanced_task(
                 if caption_style and segments:
                     # Generate ASS subtitles with style
                     caption_service = CaptionService()
-                    ass_content = caption_service.generate_ass_subtitles(
+                    ass_path = output_path.replace(f".{format}", ".ass")
+
+                    # Convert caption style to dict
+                    style_config = {
+                        "style_type": caption_style.style_type,
+                        "font_family": caption_style.font_family,
+                        "font_size": caption_style.font_size,
+                        "font_weight": caption_style.font_weight,
+                        "text_color": caption_style.text_color,
+                        "highlight_color": caption_style.highlight_color,
+                        "background_color": caption_style.background_color,
+                        "stroke_color": caption_style.stroke_color,
+                        "stroke_width": caption_style.stroke_width,
+                        "position": caption_style.position,
+                        "margin_bottom": caption_style.margin_bottom,
+                        "animation_duration": caption_style.animation_duration,
+                        "words_per_line": caption_style.words_per_line,
+                    }
+
+                    await caption_service.generate_ass_subtitles(
                         segments=[{
                             "start": seg.start_time - start_time,
                             "end": seg.end_time - start_time,
                             "text": seg.text,
                             "words": seg.words,
                         } for seg in segments],
-                        style=caption_style,
+                        output_path=ass_path,
+                        style_config=style_config,
                     )
-                    ass_path = output_path.replace(f".{format}", ".ass")
-                    with open(ass_path, "w", encoding="utf-8") as f:
-                        f.write(ass_content)
                 else:
                     captions = [
                         {
@@ -417,7 +434,7 @@ async def _export_clip_enhanced_task(
         }
 
         if ass_path:
-            export_kwargs["ass_path"] = ass_path
+            export_kwargs["ass_subtitle_path"] = ass_path
         elif captions:
             export_kwargs["captions"] = captions
 
