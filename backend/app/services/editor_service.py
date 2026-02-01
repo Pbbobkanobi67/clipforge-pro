@@ -144,7 +144,9 @@ class EditorService:
                     logger.error(f"Failed to process clip {clip_id}: {stderr.decode()}")
                     continue
 
-                concat_entries.append(f"file '{temp_path}'")
+                # Use just the filename since concat file is in the same directory
+                temp_filename = Path(temp_path).name
+                concat_entries.append(f"file '{temp_filename}'")
 
             if not concat_entries:
                 raise ValueError("No clips could be processed")

@@ -121,10 +121,22 @@ async def update_editor_project(
 
     update_data = data.model_dump(exclude_unset=True)
 
+    # Helper to convert UUIDs to strings recursively for JSON storage
+    def convert_uuids(obj):
+        if isinstance(obj, uuid.UUID):
+            return str(obj)
+        elif isinstance(obj, dict):
+            return {k: convert_uuids(v) for k, v in obj.items()}
+        elif isinstance(obj, list):
+            return [convert_uuids(item) for item in obj]
+        return obj
+
     # Convert timeline_data Pydantic model to dict if present
     if "timeline_data" in update_data and update_data["timeline_data"]:
         if hasattr(update_data["timeline_data"], "model_dump"):
             update_data["timeline_data"] = update_data["timeline_data"].model_dump()
+        # Convert UUIDs to strings for JSON serialization
+        update_data["timeline_data"] = convert_uuids(update_data["timeline_data"])
 
     # Validate brand template if being updated
     if update_data.get("brand_template_id"):
