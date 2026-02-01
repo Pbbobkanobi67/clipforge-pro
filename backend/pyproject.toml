@@ -1,7 +1,7 @@
 [project]
-name = "video-extract-pro-backend"
+name = "clipforge-pro-backend"
 version = "1.0.0"
-description = "AI Video Analysis Backend for Video Extract Pro"
+description = "AI Video Analysis Backend for ClipForge Pro"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [

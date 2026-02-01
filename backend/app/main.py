@@ -25,17 +25,17 @@ settings = get_settings()
 async def lifespan(app: FastAPI):
     """Application lifespan handler for startup/shutdown."""
     # Startup
-    logger.info("Starting Video Extract Pro Backend...")
+    logger.info("Starting ClipForge Pro Backend...")
     settings.ensure_storage_dirs()
     await init_db()
     logger.info("Database initialized")
     yield
     # Shutdown
-    logger.info("Shutting down Video Extract Pro Backend...")
+    logger.info("Shutting down ClipForge Pro Backend...")
 
 
 app = FastAPI(
-    title="Video Extract Pro - AI Analysis Backend",
+    title="ClipForge Pro - AI Analysis Backend",
     description="OpusClip-style AI video analysis with transcription, diarization, scene detection, and virality scoring",
     version="1.0.0",
     lifespan=lifespan,

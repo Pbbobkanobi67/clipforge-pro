@@ -1,4 +1,4 @@
-# Video Extract Pro - AI Analysis Backend
+# ClipForge Pro - AI Analysis Backend
 # Multi-stage Dockerfile with GPU support
 
 # ============================================

@@ -46,7 +46,7 @@ class XMLExportService:
         clips: list[dict],
         video_path: str,
         output_path: str,
-        project_name: str = "Video Extract Pro Export",
+        project_name: str = "ClipForge Pro Export",
         fps: float = 30.0,
         width: int = 1920,
         height: int = 1080,
@@ -188,7 +188,7 @@ class XMLExportService:
         clips: list[dict],
         video_path: str,
         output_path: str,
-        project_name: str = "Video Extract Pro Export",
+        project_name: str = "ClipForge Pro Export",
         fps: float = 30.0,
         width: int = 1920,
         height: int = 1080,
@@ -342,7 +342,7 @@ class XMLExportService:
         self,
         clips: list[dict],
         output_path: str,
-        project_name: str = "Video Extract Pro Export",
+        project_name: str = "ClipForge Pro Export",
         fps: float = 30.0,
     ) -> str:
         """

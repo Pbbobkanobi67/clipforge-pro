@@ -1,113 +1,129 @@
-# Video Extract Pro
+# ClipForge Pro
 
-A powerful yt-dlp command generator with presets, timestamp converter, and command history.
+AI-powered video analysis platform for creating viral clips with automated transcription, scene detection, and smart export features.
 
 ## Features
 
-- 🎬 **Video URL Input** - Supports YouTube, Vimeo, Twitter, TikTok, and more
-- ⚡ **Quick Generate** - One-click command generation with default preset
+### Core Analysis
+- 🎬 **AI Video Analysis** - Automatic transcription, speaker diarization, and scene detection
+- ⚡ **Viral Clip Detection** - AI scores clips for virality potential
+- 🎯 **Hook Detection** - Identifies compelling opening sequences
+- 👁️ **Visual Analysis** - YOLO-powered object and person detection
+
+### Pro Features (OpusClip-style)
+- ✨ **Animated Captions** - Karaoke, bounce, typewriter, fade effects
+- 📐 **AI Reframe** - Smart cropping for 9:16, 1:1, 16:9 formats
+- 🎨 **Brand Templates** - Logo overlays, colors, and outros
+- 🖼️ **Thumbnail Generator** - AI-scored frames with text overlays
+- 🎞️ **Timeline Editor** - Multi-clip editing and rendering
+- 📤 **Export to XML** - FCPXML, Premiere Pro, and EDL formats
+
+### Utilities
 - 📁 **Preset Management** - Save and manage download configurations
-- 🕐 **Timestamp Converter** - Convert between YouTube Chapters, Timecode, and FFMPEG metadata
-- 📜 **Command History** - Track your last 50 generated commands
-- 🔧 **Advanced Options** - Subtitles, SponsorBlock, rate limiting, and more
+- 🕐 **Timestamp Converter** - Convert between formats
+- 📜 **Command History** - Track generated commands
 
-## Deploy to Vercel (Easy Method)
+## Architecture
 
-### Option 1: Drag & Drop
-1. Go to [vercel.com](https://vercel.com)
-2. Sign in (or create account)
-3. Click "Add New..." → "Project"
-4. Drag and drop the `video-extract-pro` folder
-5. Click "Deploy"
-6. Done! Your app will be live at `your-project.vercel.app`
+```
+ClipForge_Pro/
+├── index.html              # React frontend (static)
+├── backend/
+│   ├── app/
+│   │   ├── api/endpoints/  # FastAPI routes
+│   │   ├── models/         # SQLAlchemy models, Pydantic schemas
+│   │   ├── services/       # AI/ML services
+│   │   └── main.py         # Application entry
+│   ├── Dockerfile          # Docker with GPU support
+│   └── pyproject.toml      # Python dependencies
+├── vercel.json             # Frontend deployment config
+└── README.md
+```
 
-### Option 2: Vercel CLI
+## Deployment
+
+### Frontend (Vercel)
 ```bash
 # Install Vercel CLI
 npm install -g vercel
 
-# Navigate to project folder
-cd video-extract-pro
-
 # Deploy
 vercel
 
-# Follow prompts, then deploy to production
+# Production deploy
 vercel --prod
 ```
 
-### Option 3: GitHub + Vercel
-1. Create a new GitHub repository
-2. Push this project to GitHub:
-   ```bash
-   git init
-   git add .
-   git commit -m "Initial commit"
-   git remote add origin https://github.com/YOUR_USERNAME/video-extract-pro.git
-   git push -u origin main
-   ```
-3. Go to [vercel.com](https://vercel.com)
-4. Click "Add New..." → "Project"
-5. Import your GitHub repository
-6. Click "Deploy"
+### Backend (Railway/Render/VPS)
 
-## Other Hosting Options
-
-### GitHub Pages
-1. Push to GitHub
-2. Go to repo Settings → Pages
-3. Select "main" branch, root folder
-4. Save - your site will be at `username.github.io/video-extract-pro`
-
-### Netlify
-1. Go to [netlify.com](https://netlify.com)
-2. Drag and drop the folder
-3. Done!
-
-### Local Development
+#### Option 1: Docker
 ```bash
-# Using Python
-python -m http.server 8000
-
-# Using Node.js
-npx serve .
-
-# Using PHP
-php -S localhost:8000
+cd backend
+docker build -t clipforge-pro-backend .
+docker run -p 8000:8000 --gpus all clipforge-pro-backend
 ```
 
-Then open `http://localhost:8000` in your browser.
-
-## Project Structure
-
-```
-video-extract-pro/
-├── index.html      # Main application (single-file React app)
-├── package.json    # Project metadata
-├── vercel.json     # Vercel deployment config
-└── README.md       # This file
-```
-
-## Usage
-
-1. Paste a YouTube (or other platform) URL
-2. Select a preset or customize options
-3. Click "Quick Generate" or copy the generated command
-4. Run the command in your terminal (requires yt-dlp installed)
-
-### Install yt-dlp
+#### Option 2: Direct Python
 ```bash
-# macOS
-brew install yt-dlp
+cd backend
+python -m venv .venv
+.venv/Scripts/activate  # Windows
+# source .venv/bin/activate  # Linux/Mac
 
-# Windows
-winget install yt-dlp
-
-# Linux
-sudo apt install yt-dlp
-# or
-pip install yt-dlp
+pip install -e .
+uvicorn app.main:app --host 0.0.0.0 --port 8000
 ```
+
+### Environment Variables
+```env
+# Database
+DATABASE_URL=postgresql+asyncpg://user:pass@host:5432/clipforge
+
+# LLM (optional, for enhanced analysis)
+ANTHROPIC_API_KEY=sk-ant-...
+OPENAI_API_KEY=sk-...
+
+# Storage
+STORAGE_PATH=/app/storage
+
+# CORS (set to your frontend URL)
+CORS_ORIGINS=["https://your-app.vercel.app"]
+```
+
+## API Documentation
+
+Once the backend is running, access:
+- Swagger UI: `http://localhost:8000/docs`
+- ReDoc: `http://localhost:8000/redoc`
+
+### Key Endpoints
+
+| Endpoint | Description |
+|----------|-------------|
+| `POST /api/v1/videos/upload` | Upload video file |
+| `POST /api/v1/videos/download` | Download from URL |
+| `POST /api/v1/analysis/{video_id}/start` | Start AI analysis |
+| `GET /api/v1/analysis/{job_id}/results` | Get analysis results |
+| `GET /api/v1/clips/{job_id}` | Get clip suggestions |
+| `POST /api/v1/clips/{clip_id}/export` | Export clip |
+| `POST /api/v1/captions/styles` | Create caption style |
+| `POST /api/v1/reframe/{clip_id}` | Generate AI reframe |
+| `POST /api/v1/thumbnails/{clip_id}/generate` | Generate thumbnails |
+
+## Tech Stack
+
+### Frontend
+- React 18 (CDN, no build required)
+- Vanilla CSS with CSS variables
+
+### Backend
+- FastAPI (async Python)
+- SQLAlchemy (async ORM)
+- faster-whisper (transcription)
+- pyannote.audio (speaker diarization)
+- YOLO v8 (visual analysis)
+- OpenCV (scene detection)
+- FFmpeg (video processing)
 
 ## License
 

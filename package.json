@@ -1,7 +1,7 @@
 {
-  "name": "video-extract-pro",
+  "name": "clipforge-pro",
   "version": "1.0.0",
-  "description": "yt-dlp command generator with presets and timestamp converter",
+  "description": "AI Video Analysis & Clip Export Platform",
   "scripts": {
     "start": "npx serve .",
     "build": "echo 'Static site - no build required'"

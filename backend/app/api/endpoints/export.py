@@ -116,7 +116,7 @@ async def export_fcpxml(
         clips=clip_dicts,
         video_path=video.file_path,
         output_path=output_path,
-        project_name=video.title or "Video Extract Pro Export",
+        project_name=video.title or "ClipForge Pro Export",
         fps=video.fps or 30.0,
         width=video.width or 1920,
         height=video.height or 1080,
@@ -222,7 +222,7 @@ async def export_premiere_xml(
         clips=clip_dicts,
         video_path=video.file_path,
         output_path=output_path,
-        project_name=video.title or "Video Extract Pro Export",
+        project_name=video.title or "ClipForge Pro Export",
         fps=video.fps or 30.0,
         width=video.width or 1920,
         height=video.height or 1080,
@@ -302,7 +302,7 @@ async def export_edl(
     await xml_service.export_edl(
         clips=clip_dicts,
         output_path=output_path,
-        project_name=video.title or "Video Extract Pro Export",
+        project_name=video.title or "ClipForge Pro Export",
         fps=video.fps or 30.0,
     )
 
