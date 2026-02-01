@@ -2408,7 +2408,7 @@
                 setGenerating(true);
                 setError(null);
                 try {
-                    await apiFetch(`/thumbnails/${clipId}/generate`, { method: 'POST' });
+                    await apiFetch(`/thumbnails/${clipId}/generate`, { method: 'POST', body: JSON.stringify({}) });
                     // Poll for completion
                     const pollInterval = setInterval(async () => {
                         try {
@@ -3516,8 +3516,16 @@
                             if (detailRes.ok) {
                                 const clip = await detailRes.json();
                                 if (clip.exported && clip.export_path) {
-                                    // Export complete, trigger download
+                                    // Export complete, update results and trigger download
                                     setAnalysisStatus(null);
+                                    if (results && results.clips) {
+                                        setResults({
+                                            ...results,
+                                            clips: results.clips.map(c =>
+                                                c.id === clipId ? { ...c, exported: true, export_path: clip.export_path } : c
+                                            )
+                                        });
+                                    }
                                     window.open(`${apiBase}/clips/${clipId}/download`, '_blank');
                                     return;
                                 }
@@ -4185,6 +4193,27 @@
                                                         <Icons.Image />
                                                         Thumbnails
                                                     </button>
+                                                    {clip.exported && clip.export_path && (
+                                                        <button
+                                                            onClick={() => window.open(`${apiBase}/clips/${clip.id}/download`, '_blank')}
+                                                            style={{
+                                                                padding: '10px 16px',
+                                                                background: 'var(--accent-green)',
+                                                                border: 'none',
+                                                                borderRadius: '8px',
+                                                                color: 'white',
+                                                                fontSize: '13px',
+                                                                fontWeight: '500',
+                                                                cursor: 'pointer',
+                                                                display: 'flex',
+                                                                alignItems: 'center',
+                                                                gap: '6px'
+                                                            }}
+                                                        >
+                                                            <Icons.FileDown />
+                                                            Open File
+                                                        </button>
+                                                    )}
                                                 </div>
 
                                                 {/* Reframe Panel */}
@@ -4275,8 +4304,17 @@
                         <ExportOptionsModal
                             clip={exportingClip}
                             onExport={(result) => {
-                                setAnalysisStatus('Export started. Check your downloads folder.');
-                                setTimeout(() => setAnalysisStatus(null), 3000);
+                                // Update the clip in results to show "Open File" button
+                                if (results && results.clips) {
+                                    setResults({
+                                        ...results,
+                                        clips: results.clips.map(c =>
+                                            c.id === result.id ? { ...c, exported: true, export_path: result.export_path } : c
+                                        )
+                                    });
+                                }
+                                // Open the file
+                                window.open(`${apiBase}/clips/${result.id}/download`, '_blank');
                             }}
                             onClose={() => setExportingClip(null)}
                         />
