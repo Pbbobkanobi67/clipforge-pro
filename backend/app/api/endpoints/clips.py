@@ -439,7 +439,20 @@ async def _export_clip_enhanced_task(
             export_kwargs["captions"] = captions
 
         if aspect_ratio:
-            export_kwargs["aspect_ratio"] = aspect_ratio
+            # Use ReframeService to calculate crop dimensions
+            from app.services.reframe_service import ReframeService
+            reframe_service = ReframeService()
+            crop_data = await reframe_service.analyze_video_for_reframe(
+                video_path=video_path,
+                aspect_ratio=aspect_ratio,
+                tracking_mode="speaker",  # Default to speaker tracking
+            )
+            export_kwargs["crop_x"] = crop_data["keyframes"][0]["x"] if crop_data["keyframes"] else (crop_data["source_width"] - crop_data["crop_width"]) // 2
+            export_kwargs["crop_y"] = crop_data["keyframes"][0]["y"] if crop_data["keyframes"] else (crop_data["source_height"] - crop_data["crop_height"]) // 2
+            export_kwargs["crop_width"] = crop_data["crop_width"]
+            export_kwargs["crop_height"] = crop_data["crop_height"]
+            export_kwargs["scale_width"] = crop_data["target_width"]
+            export_kwargs["scale_height"] = crop_data["target_height"]
 
         if brand_template:
             if brand_template.logo_path:
