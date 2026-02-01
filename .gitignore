@@ -45,3 +45,5 @@ nul
 # Root storage
 storage/
 Export/
+
+.env*.local
