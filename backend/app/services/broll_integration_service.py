@@ -257,7 +257,8 @@ class BRollIntegrationService:
         import json
         try:
             data = json.loads(output)
-            stream = data.get("streams", [{}])[0]
+            streams = data.get("streams", [])
+            stream = streams[0] if streams else {}
             format_info = data.get("format", {})
 
             return {
@@ -265,7 +266,7 @@ class BRollIntegrationService:
                 "height": stream.get("height", 1080),
                 "duration": float(stream.get("duration") or format_info.get("duration", 0)),
             }
-        except (json.JSONDecodeError, ValueError):
+        except (json.JSONDecodeError, ValueError, IndexError):
             return {"width": 1920, "height": 1080, "duration": 0}
 
     async def _extract_segment(
