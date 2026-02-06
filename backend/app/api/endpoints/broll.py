@@ -44,6 +44,35 @@ router = APIRouter()
 settings = get_settings()
 
 
+# NOTE: Static routes must come before dynamic routes like /{clip_id}
+@router.get("/search", response_model=list[BRollSearchResult])
+async def search_stock_footage(
+    q: str = Query(..., min_length=1, description="Search query"),
+    providers: list[str] = Query(default=["pexels", "pixabay"], description="Providers to search"),
+    min_duration: float = Query(default=3.0, ge=0, description="Minimum duration"),
+    max_duration: float = Query(default=30.0, ge=1, description="Maximum duration"),
+    orientation: str = Query(default="landscape", description="Video orientation"),
+    limit: int = Query(default=10, ge=1, le=50, description="Results per provider"),
+):
+    """
+    Search for stock footage across providers.
+
+    Returns video metadata and preview URLs.
+    """
+    search_service = get_broll_search_service()
+
+    results = await search_service.search(
+        queries=[q],
+        providers=providers,
+        min_duration=min_duration,
+        max_duration=max_duration,
+        orientation=orientation,
+        limit=limit,
+    )
+
+    return [BRollSearchResult.model_validate(r) for r in results]
+
+
 @router.get("/{clip_id}", response_model=list[BRollSuggestionResponse])
 async def get_broll_suggestions(
     clip_id: uuid.UUID,
@@ -207,34 +236,6 @@ async def generate_broll_suggestions(
         await session.refresh(s)
 
     return [BRollSuggestionResponse.model_validate(s) for s in created_suggestions]
-
-
-@router.get("/search", response_model=list[BRollSearchResult])
-async def search_stock_footage(
-    q: str = Query(..., min_length=1, description="Search query"),
-    providers: list[str] = Query(default=["pexels", "pixabay"], description="Providers to search"),
-    min_duration: float = Query(default=3.0, ge=0, description="Minimum duration"),
-    max_duration: float = Query(default=30.0, ge=1, description="Maximum duration"),
-    orientation: str = Query(default="landscape", description="Video orientation"),
-    limit: int = Query(default=10, ge=1, le=50, description="Results per provider"),
-):
-    """
-    Search for stock footage across providers.
-
-    Returns video metadata and preview URLs.
-    """
-    search_service = get_broll_search_service()
-
-    results = await search_service.search(
-        queries=[q],
-        providers=providers,
-        min_duration=min_duration,
-        max_duration=max_duration,
-        orientation=orientation,
-        limit=limit,
-    )
-
-    return [BRollSearchResult.model_validate(r) for r in results]
 
 
 @router.post("/suggestion/{suggestion_id}/select-asset", response_model=BRollSuggestionResponse)
