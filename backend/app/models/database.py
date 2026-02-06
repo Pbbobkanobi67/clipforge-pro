@@ -656,6 +656,94 @@ class ScheduledPost(Base):
     connection = relationship("SocialConnection", back_populates="scheduled_posts")
 
 
+# ============== AI B-Roll Features ==============
+
+
+class BRollDetectionReason(str, PyEnum):
+    """Reason for B-roll suggestion."""
+
+    ABSTRACT_CONCEPT = "abstract_concept"  # Transcript mentions non-visual ideas
+    TOPIC_CHANGE = "topic_change"  # Vocabulary shift indicating new subject
+    VISUAL_GAP = "visual_gap"  # Low visual interest period
+    TRANSITION = "transition"  # Natural pause or scene boundary
+
+
+class BRollInsertMode(str, PyEnum):
+    """How B-roll should be inserted."""
+
+    FULL_REPLACE = "full_replace"  # Replace main video entirely
+    PIP_OVERLAY = "pip_overlay"  # Picture-in-picture overlay
+
+
+class BRollAsset(Base):
+    """Downloaded stock footage cache."""
+
+    __tablename__ = "broll_assets"
+
+    id = Column(GUID(), primary_key=True, default=uuid.uuid4)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    # Provider info
+    provider = Column(String(50), nullable=False)  # pexels, pixabay
+    provider_id = Column(String(200), nullable=False)  # ID from provider
+    provider_url = Column(String(2048), nullable=True)  # Original URL
+
+    # Metadata
+    title = Column(String(500), nullable=True)
+    tags = Column(JSON, default=list)  # ["nature", "technology", ...]
+    duration = Column(Float, nullable=True)
+    width = Column(Integer, nullable=True)
+    height = Column(Integer, nullable=True)
+
+    # Local storage
+    local_path = Column(String(1000), nullable=True)
+    thumbnail_path = Column(String(1000), nullable=True)
+    file_size_bytes = Column(Integer, nullable=True)
+
+    # Relationships
+    suggestions = relationship("BRollSuggestion", back_populates="asset")
+
+
+class BRollSuggestion(Base):
+    """AI-detected B-roll insertion point."""
+
+    __tablename__ = "broll_suggestions"
+
+    id = Column(GUID(), primary_key=True, default=uuid.uuid4)
+    clip_id = Column(GUID(), ForeignKey("clip_suggestions.id"), nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    # Timing in the clip
+    start_time = Column(Float, nullable=False)
+    end_time = Column(Float, nullable=False)
+    duration = Column(Float, nullable=False)
+
+    # Detection info
+    detection_reason = Column(Enum(BRollDetectionReason), nullable=False)
+    transcript_context = Column(Text, nullable=True)  # Relevant transcript excerpt
+    keywords = Column(JSON, default=list)  # Extracted keywords
+    search_queries = Column(JSON, default=list)  # Generated search queries
+
+    # Selected asset
+    asset_id = Column(GUID(), ForeignKey("broll_assets.id"), nullable=True)
+    insert_mode = Column(Enum(BRollInsertMode), default=BRollInsertMode.FULL_REPLACE)
+    transition_type = Column(String(50), default="crossfade")  # crossfade, fade, cut
+
+    # Scores
+    relevance_score = Column(Float, default=0.0)  # How relevant is this B-roll spot
+    confidence = Column(Float, default=0.0)  # Detection confidence
+
+    # Approval status
+    is_approved = Column(Boolean, default=False)
+    rank = Column(Integer, nullable=True)
+
+    # Relationships
+    clip = relationship("ClipSuggestion", backref="broll_suggestions")
+    asset = relationship("BRollAsset", back_populates="suggestions")
+
+
 # Database engines and sessions
 # Handle SQLite vs PostgreSQL connection args
 is_sqlite = "sqlite" in settings.database_url

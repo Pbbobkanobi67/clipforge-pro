@@ -12,6 +12,7 @@ from app.api.endpoints import (
     thumbnails,
     editor,
     export,
+    broll,
 )
 
 api_router = APIRouter()
@@ -28,3 +29,4 @@ api_router.include_router(reframe.router, prefix="/reframe", tags=["AI Reframe"]
 api_router.include_router(thumbnails.router, prefix="/thumbnails", tags=["Thumbnails"])
 api_router.include_router(editor.router, prefix="/editor", tags=["Timeline Editor"])
 api_router.include_router(export.router, prefix="/export", tags=["Export"])
+api_router.include_router(broll.router, prefix="/broll", tags=["AI B-Roll"])

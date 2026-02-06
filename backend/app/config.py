@@ -67,6 +67,14 @@ class Settings(BaseSettings):
     max_video_duration_minutes: int = Field(default=180)
     analysis_timeout_seconds: int = Field(default=3600)
 
+    # B-Roll settings
+    pexels_api_key: str = Field(default="", description="Pexels API key for stock video")
+    pixabay_api_key: str = Field(default="", description="Pixabay API key for stock video")
+    broll_storage_path: Path = Field(default=Path("./storage/broll"))
+    broll_max_cache_size_gb: float = Field(default=10.0, description="Max B-roll cache size in GB")
+    broll_default_transition: str = Field(default="crossfade", description="Default transition type")
+    broll_default_duration: float = Field(default=4.0, description="Default B-roll clip duration")
+
     # Server
     host: str = Field(default="0.0.0.0")
     port: int = Field(default=8000)
@@ -89,6 +97,7 @@ class Settings(BaseSettings):
             self.video_storage_path,
             self.clip_storage_path,
             self.cache_path,
+            self.broll_storage_path,
         ]:
             path.mkdir(parents=True, exist_ok=True)
 

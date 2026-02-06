@@ -283,6 +283,8 @@ async def export_clip_enhanced(
         suffix_parts.append("captions")
     if brand_template:
         suffix_parts.append("branded")
+    if request.include_broll:
+        suffix_parts.append("broll")
 
     suffix = "_" + "_".join(suffix_parts) if suffix_parts else ""
     output_filename = f"clip_{clip_id}{suffix}.{request.format}"
@@ -304,6 +306,8 @@ async def export_clip_enhanced(
             brand_template_id=str(request.brand_template_id) if request.brand_template_id else None,
             aspect_ratio=request.aspect_ratio,
             job_id=job.id,
+            include_broll=request.include_broll,
+            broll_transition_duration=request.broll_transition_duration,
         )
     else:
         await _export_clip_enhanced_task(
@@ -319,6 +323,8 @@ async def export_clip_enhanced(
             brand_template_id=str(request.brand_template_id) if request.brand_template_id else None,
             aspect_ratio=request.aspect_ratio,
             job_id=job.id,
+            include_broll=request.include_broll,
+            broll_transition_duration=request.broll_transition_duration,
         )
 
     # Update clip record
@@ -343,11 +349,13 @@ async def _export_clip_enhanced_task(
     brand_template_id: Optional[str],
     aspect_ratio: Optional[str],
     job_id: uuid.UUID,
+    include_broll: bool = False,
+    broll_transition_duration: float = 0.5,
 ):
     """Background task to export clip with enhanced options."""
     from app.services.video_service import VideoService
     from app.services.caption_service import CaptionService
-    from app.models.database import SyncSessionLocal, CaptionStyle, BrandTemplate, Transcription, TranscriptionSegment
+    from app.models.database import SyncSessionLocal, CaptionStyle, BrandTemplate, Transcription, TranscriptionSegment, BRollSuggestion, BRollAsset
 
     video_service = VideoService()
     session = SyncSessionLocal()
@@ -466,6 +474,54 @@ async def _export_clip_enhanced_task(
             await video_service.export_clip_enhanced(**export_kwargs)
         else:
             await video_service.export_clip(**export_kwargs)
+
+        # Apply B-roll if requested
+        if include_broll:
+            from app.services.broll_integration_service import get_broll_integration_service
+
+            # Query approved B-roll suggestions for this clip
+            approved_suggestions = (
+                session.query(BRollSuggestion)
+                .filter(BRollSuggestion.clip_id == clip_id)
+                .filter(BRollSuggestion.is_approved == True)
+                .order_by(BRollSuggestion.start_time)
+                .all()
+            )
+
+            if approved_suggestions:
+                insertions = []
+                for s in approved_suggestions:
+                    if s.asset_id:
+                        asset = session.query(BRollAsset).filter(BRollAsset.id == s.asset_id).first()
+                        if asset and asset.local_path:
+                            insertions.append({
+                                "start_time": s.start_time,
+                                "duration": s.duration,
+                                "asset_path": asset.local_path,
+                                "mode": s.insert_mode.value if s.insert_mode else "full_replace",
+                                "transition": s.transition_type or "crossfade",
+                            })
+
+                if insertions:
+                    # Apply B-roll to the exported clip
+                    broll_service = get_broll_integration_service()
+                    temp_output = output_path.replace(f".{format}", f"_temp.{format}")
+
+                    # Rename current output to temp
+                    import shutil
+                    shutil.move(output_path, temp_output)
+
+                    # Apply B-roll
+                    await broll_service.apply_broll(
+                        input_path=temp_output,
+                        output_path=output_path,
+                        broll_insertions=insertions,
+                        transition_duration=broll_transition_duration,
+                    )
+
+                    # Clean up temp file
+                    Path(temp_output).unlink(missing_ok=True)
+                    logger.info(f"Applied {len(insertions)} B-roll insertions to clip {clip_id}")
 
         # Update database
         clip = session.query(ClipSuggestion).filter(ClipSuggestion.id == clip_id).first()

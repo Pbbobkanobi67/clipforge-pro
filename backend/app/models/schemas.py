@@ -690,6 +690,10 @@ class EnhancedClipExportRequest(BaseModel):
     include_logo: bool = Field(default=False)
     include_outro: bool = Field(default=False)
 
+    # B-roll options
+    include_broll: bool = Field(default=False, description="Include approved B-roll insertions")
+    broll_transition_duration: float = Field(default=0.5, ge=0.0, le=2.0, description="B-roll crossfade duration")
+
 
 class XMLExportRequest(BaseModel):
     """Schema for XML export request."""
@@ -697,3 +701,116 @@ class XMLExportRequest(BaseModel):
     format: str = Field(default="fcpxml", description="fcpxml or premiere")
     include_markers: bool = Field(default=True)
     include_captions: bool = Field(default=True)
+
+
+# ============== B-Roll Schemas ==============
+
+
+class BRollGenerateRequest(BaseModel):
+    """Schema for generating B-roll suggestions."""
+
+    max_suggestions: int = Field(default=5, ge=1, le=20, description="Maximum suggestions to generate")
+    use_llm: bool = Field(default=True, description="Use LLM for search query generation")
+    min_duration: float = Field(default=2.0, ge=0.5, le=30.0, description="Minimum B-roll duration")
+    max_duration: float = Field(default=10.0, ge=1.0, le=60.0, description="Maximum B-roll duration")
+
+
+class BRollSearchRequest(BaseModel):
+    """Schema for searching stock footage."""
+
+    query: str = Field(..., min_length=1, max_length=500, description="Search query")
+    providers: list[str] = Field(default=["pexels", "pixabay"], description="Providers to search")
+    min_duration: float = Field(default=3.0, ge=0.0, description="Minimum video duration")
+    max_duration: float = Field(default=30.0, ge=1.0, description="Maximum video duration")
+    orientation: str = Field(default="landscape", description="Video orientation: landscape, portrait, square")
+    limit: int = Field(default=10, ge=1, le=50, description="Results per provider")
+
+
+class BRollAssetResponse(BaseModel):
+    """Schema for B-roll asset response."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    created_at: datetime
+    provider: str
+    provider_id: str
+    provider_url: Optional[str] = None
+    title: Optional[str] = None
+    tags: list[str] = Field(default_factory=list)
+    duration: Optional[float] = None
+    width: Optional[int] = None
+    height: Optional[int] = None
+    local_path: Optional[str] = None
+    thumbnail_path: Optional[str] = None
+
+
+class BRollSearchResult(BaseModel):
+    """Schema for a single search result from stock footage API."""
+
+    provider: str
+    provider_id: str
+    provider_url: str
+    download_url: str
+    thumbnail_url: Optional[str] = None
+    title: Optional[str] = None
+    tags: list[str] = Field(default_factory=list)
+    duration: Optional[float] = None
+    width: Optional[int] = None
+    height: Optional[int] = None
+
+
+class BRollSuggestionResponse(BaseModel):
+    """Schema for B-roll suggestion response."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    clip_id: UUID
+    created_at: datetime
+    start_time: float
+    end_time: float
+    duration: float
+    detection_reason: str
+    transcript_context: Optional[str] = None
+    keywords: list[str] = Field(default_factory=list)
+    search_queries: list[str] = Field(default_factory=list)
+    asset_id: Optional[UUID] = None
+    asset: Optional[BRollAssetResponse] = None
+    insert_mode: str
+    transition_type: str
+    relevance_score: float
+    confidence: float
+    is_approved: bool
+    rank: Optional[int] = None
+
+
+class BRollSelectAssetRequest(BaseModel):
+    """Schema for selecting an asset for a B-roll suggestion."""
+
+    provider: str = Field(..., description="Provider name: pexels, pixabay")
+    provider_id: str = Field(..., description="Provider's video ID")
+    download_url: str = Field(..., description="URL to download the video")
+    title: Optional[str] = None
+    tags: list[str] = Field(default_factory=list)
+    duration: Optional[float] = None
+    width: Optional[int] = None
+    height: Optional[int] = None
+    insert_mode: str = Field(default="full_replace", description="full_replace or pip_overlay")
+    transition_type: str = Field(default="crossfade", description="Transition type")
+
+
+class BRollApproveRequest(BaseModel):
+    """Schema for approving a B-roll suggestion."""
+
+    is_approved: bool = Field(default=True)
+
+
+class BRollExportRequest(BaseModel):
+    """Schema for exporting clip with B-roll."""
+
+    format: str = Field(default="mp4")
+    resolution: Optional[str] = Field(default=None, description="720p, 1080p, 4k")
+    transition_duration: float = Field(default=0.5, ge=0.0, le=2.0, description="Crossfade duration")
+    include_captions: bool = Field(default=False)
+    caption_style_id: Optional[UUID] = None
