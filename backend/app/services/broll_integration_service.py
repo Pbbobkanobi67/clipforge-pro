@@ -277,14 +277,21 @@ class BRollIntegrationService:
         duration: float,
         target_width: int,
         target_height: int,
+        target_fps: float = 30.0,
     ):
-        """Extract a segment from the main video."""
+        """Extract a segment from the main video with normalized fps for xfade compatibility."""
+        # Use fps filter to normalize frame rate for xfade compatibility
+        vf = (
+            f"scale={target_width}:{target_height}:force_original_aspect_ratio=decrease,"
+            f"pad={target_width}:{target_height}:(ow-iw)/2:(oh-ih)/2,"
+            f"fps={target_fps},settb=1/{int(target_fps * 1000)}"
+        )
         cmd = [
             "ffmpeg", "-y",
             "-ss", str(start_time),
             "-i", input_path,
             "-t", str(duration),
-            "-vf", f"scale={target_width}:{target_height}:force_original_aspect_ratio=decrease,pad={target_width}:{target_height}:(ow-iw)/2:(oh-ih)/2",
+            "-vf", vf,
             "-c:v", "libx264",
             "-preset", "ultrafast",
             "-crf", "18",
@@ -301,16 +308,19 @@ class BRollIntegrationService:
         target_duration: float,
         target_width: int,
         target_height: int,
+        target_fps: float = 30.0,
     ):
-        """Prepare B-roll segment with correct duration and dimensions."""
+        """Prepare B-roll segment with correct duration, dimensions, and fps for xfade compatibility."""
         # Get B-roll duration
         info = await self._get_video_info(input_path)
         broll_duration = info.get("duration", 0)
 
-        # Build filter
+        # Build filter with fps normalization for xfade compatibility
         filters = [
             f"scale={target_width}:{target_height}:force_original_aspect_ratio=decrease",
             f"pad={target_width}:{target_height}:(ow-iw)/2:(oh-ih)/2",
+            f"fps={target_fps}",
+            f"settb=1/{int(target_fps * 1000)}",
         ]
 
         # Loop if B-roll is shorter than target
@@ -337,6 +347,24 @@ class BRollIntegrationService:
         )
 
         await self._run_ffmpeg(cmd)
+
+    # Map our transition names to valid FFmpeg xfade transitions
+    TRANSITION_MAP = {
+        "crossfade": "fade",
+        "fade": "fade",
+        "dissolve": "dissolve",
+        "wipe": "wipeleft",
+        "wipeleft": "wipeleft",
+        "wiperight": "wiperight",
+        "wipeup": "wipeup",
+        "wipedown": "wipedown",
+        "slide": "slideleft",
+        "slideleft": "slideleft",
+        "slideright": "slideright",
+        "fadeblack": "fadeblack",
+        "fadewhite": "fadewhite",
+        "cut": "fade",  # Very short fade for cut effect
+    }
 
     async def _concatenate_with_transitions(
         self,
@@ -365,10 +393,12 @@ class BRollIntegrationService:
             current_duration = segments[i]["duration"]
             offset = current_offset + current_duration - transition_duration
 
-            transition_type = segments[i + 1].get("transition", "fade")
-            if transition_type == "cut":
-                transition_type = "fade"
-                trans_dur = 0.1
+            # Map transition name to valid FFmpeg xfade transition
+            raw_transition = segments[i + 1].get("transition", "fade")
+            transition_type = self.TRANSITION_MAP.get(raw_transition, "fade")
+
+            if raw_transition == "cut":
+                trans_dur = 0.1  # Very short transition for cut effect
             else:
                 trans_dur = transition_duration
 

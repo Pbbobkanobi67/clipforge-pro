@@ -61,6 +61,15 @@ class BRollSearchService:
         all_results = []
         search_tasks = []
 
+        # Log warnings for missing API keys
+        missing_keys = []
+        if "pexels" in providers and not settings.pexels_api_key:
+            missing_keys.append("PEXELS_API_KEY")
+        if "pixabay" in providers and not settings.pixabay_api_key:
+            missing_keys.append("PIXABAY_API_KEY")
+        if missing_keys:
+            logger.warning(f"B-roll search: Missing API keys: {', '.join(missing_keys)}. Add them to .env file.")
+
         for query in queries:
             for provider in providers:
                 if provider == "pexels" and settings.pexels_api_key:
