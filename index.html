@@ -3360,7 +3360,7 @@
                             throw new Error(video.error_message || 'Download failed');
                         }
                         // Still downloading, continue polling
-                        setAnalysisStatus(`Downloading... ${video.title || ''}`);
+                        setAnalysisStatus(video.title ? `Downloading: ${video.title}` : 'Downloading...');
                     } catch (err) {
                         throw err;
                     }
@@ -3399,13 +3399,13 @@
                     }
 
                     const video = await response.json();
-                    setVideoId(video.id);
 
-                    // Step 2: Wait for download to complete
-                    setAnalysisStatus('Downloading video...');
+                    // Step 2: Wait for download to complete (don't set videoId yet)
+                    setAnalysisStatus('Downloading...');
                     const readyVideo = await waitForVideo(video.id);
 
-                    // Step 3: Auto-start analysis
+                    // Step 3: Download complete - now set videoId and auto-start analysis
+                    setVideoId(video.id);
                     setAnalysisStatus('Starting AI analysis...');
                     await startAnalysisForVideo(video.id);
 
@@ -3966,7 +3966,7 @@
                         }}>
                             <h3 style={{ fontSize: '16px', fontWeight: '600', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
                                 <Icons.Loader />
-                                Analyzing Video...
+                                {analysisStatus && analysisStatus.toLowerCase().includes('download') ? 'Downloading Video...' : 'Analyzing Video...'}
                             </h3>
 
                             <div style={{
