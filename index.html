@@ -3347,7 +3347,7 @@
 
             // Poll video status until ready
             const waitForVideo = async (id) => {
-                const maxAttempts = 120; // 2 minutes max
+                const maxAttempts = 600; // 10 minutes max (long broadcasts need time)
                 for (let i = 0; i < maxAttempts; i++) {
                     await new Promise(r => setTimeout(r, 1000));
                     try {
@@ -3359,13 +3359,18 @@
                         } else if (video.status === 'error') {
                             throw new Error(video.error_message || 'Download failed');
                         }
-                        // Still downloading, continue polling
-                        setAnalysisStatus(video.title ? `Downloading: ${video.title}` : 'Downloading...');
+                        // Still downloading, show title and elapsed time
+                        const elapsed = Math.floor((i + 1) / 60);
+                        const secs = (i + 1) % 60;
+                        const timeStr = elapsed > 0 ? `${elapsed}m ${secs}s` : `${secs}s`;
+                        const title = video.title && video.title !== 'Downloading...' ? video.title : '';
+                        setAnalysisStatus(title ? `Downloading: ${title} (${timeStr})` : `Downloading... (${timeStr})`);
+                        setAnalysisProgress(Math.min(90, (i / maxAttempts) * 100));
                     } catch (err) {
                         throw err;
                     }
                 }
-                throw new Error('Download timeout');
+                throw new Error('Download timeout - video may be too large');
             };
 
             // Handle URL submission - downloads, waits, then auto-analyzes

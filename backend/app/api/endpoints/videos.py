@@ -156,7 +156,9 @@ async def download_video(
 def _download_video_task(video_id: uuid.UUID, url: str, output_dir: str):
     """Background task to download video (runs in thread pool)."""
     import asyncio
+    import subprocess
     from app.models.database import SyncSessionLocal
+    from app.services.video_service import YTDLP_CMD
 
     # Ensure output directory exists
     Path(output_dir).mkdir(parents=True, exist_ok=True)
@@ -169,7 +171,34 @@ def _download_video_task(video_id: uuid.UUID, url: str, output_dir: str):
         if not video:
             return
 
-        # Run async download in new event loop (since we're in a thread)
+        logger.info(f"Starting download for video {video_id}: {url}")
+
+        # Step 1: Quick metadata fetch (no download) to update title immediately
+        try:
+            meta_cmd = [
+                YTDLP_CMD,
+                "--no-download",
+                "--print-json",
+                "--no-warnings",
+                "--no-playlist",
+                url,
+            ]
+            meta_result = subprocess.run(meta_cmd, capture_output=True, timeout=30)
+            if meta_result.returncode == 0:
+                import json
+                meta_info = json.loads(meta_result.stdout.decode())
+                video.title = meta_info.get("title", video.title)
+                video.duration_seconds = meta_info.get("duration")
+                video.width = meta_info.get("width")
+                video.height = meta_info.get("height")
+                video.fps = meta_info.get("fps")
+                video.description = meta_info.get("description")
+                session.commit()
+                logger.info(f"Metadata fetched for {video_id}: {video.title}")
+        except Exception as e:
+            logger.warning(f"Metadata fetch failed for {video_id}, continuing with download: {e}")
+
+        # Step 2: Download the actual file
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         try:
@@ -183,15 +212,15 @@ def _download_video_task(video_id: uuid.UUID, url: str, output_dir: str):
         finally:
             loop.close()
 
-        # Update video record
+        # Update video record with final info
         video.file_path = result["file_path"]
         video.file_size_bytes = result.get("file_size")
-        video.duration_seconds = result.get("duration")
-        video.width = result.get("width")
-        video.height = result.get("height")
-        video.fps = result.get("fps")
-        video.title = result.get("title", video.title)
-        video.description = result.get("description")
+        video.duration_seconds = result.get("duration") or video.duration_seconds
+        video.width = result.get("width") or video.width
+        video.height = result.get("height") or video.height
+        video.fps = result.get("fps") or video.fps
+        video.title = result.get("title") or video.title
+        video.description = result.get("description") or video.description
         video.thumbnail_path = result.get("thumbnail_path")
         video.status = VideoStatus.READY
 
