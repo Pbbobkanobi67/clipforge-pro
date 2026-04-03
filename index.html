@@ -83,7 +83,7 @@
     <div id="root"></div>
 
     <script type="text/babel">
-        const { useState, useEffect, useCallback, useMemo } = React;
+        const { useState, useEffect, useCallback, useMemo, useRef } = React;
 
         // ============== ICONS ==============
         const Icons = {
@@ -2578,6 +2578,12 @@
                 include_captions: false,
                 include_branding: false,
                 include_outro: false,
+                remove_fillers: true,
+                add_emojis: false,
+                keyword_highlight: true,
+                auto_zoom: false,
+                remove_silence: false,
+                video_fade: false,
             });
 
             useEffect(() => {
@@ -2588,8 +2594,24 @@
                             apiFetch('/captions/styles').catch(() => ({ styles: [] })),
                             apiFetch('/brands').catch(() => ({ templates: [] })),
                         ]);
-                        setCaptionStyles(styles.styles || styles || []);
-                        setBrandTemplates(brands.templates || brands || []);
+                        const loadedStyles = styles.styles || styles || [];
+                        const loadedBrands = brands.templates || brands || [];
+                        setCaptionStyles(loadedStyles);
+                        setBrandTemplates(loadedBrands);
+
+                        // Auto-enable captions with first style if available
+                        const updates = {};
+                        if (loadedStyles.length > 0) {
+                            updates.include_captions = true;
+                            updates.caption_style_id = loadedStyles[0].id;
+                        }
+                        if (loadedBrands.length > 0) {
+                            updates.include_branding = true;
+                            updates.brand_template_id = loadedBrands[0].id;
+                        }
+                        if (Object.keys(updates).length > 0) {
+                            setExportOptions(prev => ({ ...prev, ...updates }));
+                        }
                     } catch (err) {
                         console.error('Error loading export options:', err);
                     } finally {
@@ -2724,6 +2746,57 @@
                                             No caption styles created yet. Create one in the Pro Features tab.
                                         </div>
                                     )}
+
+                                    {exportOptions.include_captions && (
+                                        <div style={{ marginTop: '12px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                                            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '13px', color: 'var(--text-secondary)' }}>
+                                                <input type="checkbox" checked={exportOptions.remove_fillers}
+                                                    onChange={e => setExportOptions({ ...exportOptions, remove_fillers: e.target.checked })} />
+                                                Remove filler words (um, uh, etc.)
+                                            </label>
+                                            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '13px', color: 'var(--text-secondary)' }}>
+                                                <input type="checkbox" checked={exportOptions.keyword_highlight}
+                                                    onChange={e => setExportOptions({ ...exportOptions, keyword_highlight: e.target.checked })} />
+                                                Highlight keywords
+                                            </label>
+                                            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '13px', color: 'var(--text-secondary)' }}>
+                                                <input type="checkbox" checked={exportOptions.add_emojis}
+                                                    onChange={e => setExportOptions({ ...exportOptions, add_emojis: e.target.checked })} />
+                                                Auto-insert emojis
+                                            </label>
+                                        </div>
+                                    )}
+                                </div>
+
+                                {/* Visual Effects */}
+                                <div style={{ marginBottom: '20px', padding: '16px', background: 'var(--bg-elevated)', borderRadius: '12px' }}>
+                                    <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '14px' }}>
+                                        <input type="checkbox" checked={exportOptions.auto_zoom}
+                                            onChange={e => setExportOptions({ ...exportOptions, auto_zoom: e.target.checked })} />
+                                        <Icons.Zap />
+                                        <span style={{ fontWeight: '500' }}>Dynamic Auto-Zoom</span>
+                                    </label>
+                                    <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '4px', marginLeft: '28px' }}>
+                                        Gentle zoom pulse for visual interest
+                                    </div>
+                                    <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '14px', marginTop: '12px' }}>
+                                        <input type="checkbox" checked={exportOptions.remove_silence}
+                                            onChange={e => setExportOptions({ ...exportOptions, remove_silence: e.target.checked })} />
+                                        <Icons.Zap />
+                                        <span style={{ fontWeight: '500' }}>Remove Silence</span>
+                                    </label>
+                                    <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '4px', marginLeft: '28px' }}>
+                                        Trim dead air and pauses for tighter pacing
+                                    </div>
+                                    <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '14px', marginTop: '12px' }}>
+                                        <input type="checkbox" checked={exportOptions.video_fade}
+                                            onChange={e => setExportOptions({ ...exportOptions, video_fade: e.target.checked })} />
+                                        <Icons.Zap />
+                                        <span style={{ fontWeight: '500' }}>Fade Transitions</span>
+                                    </label>
+                                    <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '4px', marginLeft: '28px' }}>
+                                        Smooth fade-in/fade-out for cinematic feel
+                                    </div>
                                 </div>
 
                                 {/* Branding */}
@@ -3265,7 +3338,15 @@
             const [isLoading, setIsLoading] = useState(false);
             const [exportingClip, setExportingClip] = useState(null);
             const [showReframe, setShowReframe] = useState(null);
+            const [batchExporting, setBatchExporting] = useState(false);
+            const [batchProgress, setBatchProgress] = useState(null);
             const [showThumbnails, setShowThumbnails] = useState(null);
+            const [videoMeta, setVideoMeta] = useState(null);
+            const [clipStartTime, setClipStartTime] = useState(0);
+            const [clipEndTime, setClipEndTime] = useState(null);
+            const [timelineThumbs, setTimelineThumbs] = useState([]);
+            const [thumbsLoading, setThumbsLoading] = useState(false);
+            const videoRef = useRef(null);
 
             // Check backend connection on mount and when API URL changes
             useEffect(() => {
@@ -3289,6 +3370,42 @@
                 };
                 checkConnection();
             }, [apiBase]);
+
+            // Fetch timeline thumbnails
+            const fetchTimelineThumbs = useCallback(async () => {
+                if (!videoId || thumbsLoading) return;
+                const dur = videoMeta?.duration_seconds;
+                if (!dur) return;
+                setThumbsLoading(true);
+                try {
+                    const thumbCount = Math.min(40, Math.max(15, Math.floor(dur / 30)));
+                    const res = await fetch(`${apiBase}/videos/${videoId}/thumbnails?count=${thumbCount}`);
+                    if (res.ok) {
+                        const data = await res.json();
+                        setTimelineThumbs(data.thumbnails || []);
+                    }
+                } catch (e) {
+                    console.warn('Failed to load timeline thumbnails:', e);
+                }
+                setThumbsLoading(false);
+            }, [videoId, videoMeta, apiBase]);
+
+            // Auto-fetch thumbnails when video is ready
+            useEffect(() => {
+                if (videoId && videoMeta?.duration_seconds && timelineThumbs.length === 0) {
+                    fetchTimelineThumbs();
+                }
+            }, [videoId, videoMeta]);
+
+            // Format seconds to MM:SS
+            const formatTime = (seconds) => {
+                if (!seconds || seconds < 0) return '0:00';
+                const h = Math.floor(seconds / 3600);
+                const m = Math.floor((seconds % 3600) / 60);
+                const s = Math.floor(seconds % 60);
+                if (h > 0) return `${h}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+                return `${m}:${s.toString().padStart(2, '0')}`;
+            };
 
             // Save settings to localStorage
             const saveSettings = () => {
@@ -3329,6 +3446,9 @@
 
                     const video = await response.json();
                     setVideoId(video.id);
+                    setVideoMeta(video);
+                    setClipStartTime(0);
+                    setClipEndTime(video.duration_seconds || null);
                     setUploadProgress(100);
                 } catch (err) {
                     setError(err.message);
@@ -3374,6 +3494,50 @@
             };
 
             // Handle URL submission - downloads, waits, then auto-analyzes
+            // Load an existing video by ID (for videos already in the database)
+            const loadExistingVideo = async (id) => {
+                try {
+                    setIsLoading(true);
+                    setError(null);
+                    setResults(null);
+                    setJobId(null);
+                    setAnalysisStatus(null);
+                    const res = await fetch(`${apiBase}/videos/${id}`);
+                    if (!res.ok) throw new Error('Video not found');
+                    const video = await res.json();
+                    if (video.status !== 'ready') throw new Error(`Video not ready: ${video.status}`);
+                    setVideoId(video.id);
+                    setVideoMeta(video);
+                    setClipStartTime(0);
+                    setClipEndTime(video.duration_seconds || null);
+
+                    // Check if there's a completed or in-progress analysis for this video
+                    try {
+                        const jobsRes = await fetch(`${apiBase}/analysis/${id}/latest`);
+                        if (jobsRes.ok) {
+                            const job = await jobsRes.json();
+                            if (job.status === 'completed') {
+                                setJobId(job.id);
+                                await fetchResults(job.id);
+                                return;
+                            } else if (!['failed'].includes(job.status)) {
+                                setJobId(job.id);
+                                setAnalysisStatus(job.current_stage || job.status);
+                                setAnalysisProgress(job.progress);
+                                pollAnalysisStatus(job.id);
+                                return;
+                            }
+                        }
+                    } catch (e) {
+                        // No existing analysis, that's fine - show timeline
+                    }
+                } catch (err) {
+                    setError(err.message);
+                } finally {
+                    setIsLoading(false);
+                }
+            };
+
             const handleUrlSubmit = async () => {
                 if (!videoUrl) return;
 
@@ -3409,10 +3573,13 @@
                     setAnalysisStatus('Downloading...');
                     const readyVideo = await waitForVideo(video.id);
 
-                    // Step 3: Download complete - now set videoId and auto-start analysis
+                    // Step 3: Download complete - show timeline for clip selection
                     setVideoId(video.id);
-                    setAnalysisStatus('Starting AI analysis...');
-                    await startAnalysisForVideo(video.id);
+                    setVideoMeta(readyVideo);
+                    setClipStartTime(0);
+                    setClipEndTime(readyVideo.duration_seconds || null);
+                    setIsLoading(false);
+                    setAnalysisStatus(null);
 
                 } catch (err) {
                     setError(err.message);
@@ -3429,18 +3596,25 @@
                     setAnalysisStatus('Starting analysis...');
                     setAnalysisProgress(0);
 
+                    const analysisBody = {
+                        transcribe: true,
+                        diarize: false,
+                        detect_scenes: true,
+                        analyze_visuals: true,
+                        detect_hooks: true,
+                        suggest_clips: true,
+                        llm_analysis: true,
+                    };
+                    // Include clip times if trimmed (not full video)
+                    const dur = videoMeta?.duration_seconds;
+                    if (clipStartTime > 0 || (clipEndTime && dur && clipEndTime < dur - 1)) {
+                        analysisBody.clip_start_time = clipStartTime;
+                        analysisBody.clip_end_time = clipEndTime;
+                    }
                     const response = await fetch(`${apiBase}/analysis/${vidId}/start`, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                            transcribe: true,
-                            diarize: false,
-                            detect_scenes: true,
-                            analyze_visuals: true,
-                            detect_hooks: true,
-                            suggest_clips: true,
-                            llm_analysis: true,
-                        }),
+                        body: JSON.stringify(analysisBody),
                     });
 
                     if (!response.ok) {
@@ -3507,7 +3681,7 @@
                     const response = await fetch(`${apiBase}/clips/${clipId}/export`, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ clip_id: clipId, format: 'mp4' }),
+                        body: JSON.stringify({ format: 'mp4' }),
                     });
 
                     if (!response.ok) {
@@ -3545,6 +3719,47 @@
                 } catch (err) {
                     setError(err.message);
                     setAnalysisStatus(null);
+                }
+            };
+
+            // Batch export all clips
+            const batchExportAll = async () => {
+                if (!results?.clips?.length) return;
+                setBatchProgress({ current: 0, total: results.clips.length, status: 'starting' });
+
+                try {
+                    // Get first available caption style
+                    let styleId = null;
+                    try {
+                        const styles = await apiFetch('/captions/styles');
+                        const styleList = styles.styles || styles || [];
+                        if (styleList.length > 0) styleId = styleList[0].id;
+                    } catch (e) {}
+
+                    for (let i = 0; i < results.clips.length; i++) {
+                        const clip = results.clips[i];
+                        setBatchProgress({ current: i + 1, total: results.clips.length, status: `Exporting clip ${i + 1}/${results.clips.length}` });
+
+                        try {
+                            await apiFetch(`/clips/${clip.id}/export/enhanced`, {
+                                method: 'POST',
+                                body: JSON.stringify({
+                                    format: 'mp4',
+                                    include_captions: true,
+                                    caption_style_id: styleId,
+                                    remove_fillers: true,
+                                    keyword_highlight: true,
+                                }),
+                            });
+                        } catch (e) {
+                            console.error(`Failed to export clip ${clip.id}:`, e);
+                        }
+                    }
+
+                    setBatchProgress({ current: results.clips.length, total: results.clips.length, status: 'Complete!' });
+                    setTimeout(() => { setBatchExporting(false); setBatchProgress(null); }, 2000);
+                } catch (err) {
+                    setBatchProgress({ current: 0, total: 0, status: `Error: ${err.message}` });
                 }
             };
 
@@ -3905,60 +4120,330 @@
                                     style={{ display: 'none' }}
                                 />
                             </label>
+
+                            {/* Load existing video by ID */}
+                            <div style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '16px',
+                                margin: '20px 0',
+                                color: 'var(--text-muted)',
+                                fontSize: '13px'
+                            }}>
+                                <div style={{ flex: 1, height: '1px', background: 'var(--border)' }} />
+                                <span>OR LOAD BY ID</span>
+                                <div style={{ flex: 1, height: '1px', background: 'var(--border)' }} />
+                            </div>
+                            <div style={{ display: 'flex', gap: '12px' }}>
+                                <input
+                                    id="videoIdInput"
+                                    type="text"
+                                    placeholder="Paste video ID (UUID)"
+                                    style={{
+                                        flex: 1,
+                                        padding: '14px 16px',
+                                        background: 'var(--bg-elevated)',
+                                        border: '1px solid var(--border)',
+                                        borderRadius: '10px',
+                                        color: 'var(--text-primary)',
+                                        fontSize: '14px',
+                                        fontFamily: 'var(--font-mono)'
+                                    }}
+                                />
+                                <button
+                                    onClick={() => {
+                                        const id = document.getElementById('videoIdInput').value.trim();
+                                        if (id) loadExistingVideo(id);
+                                    }}
+                                    disabled={isLoading}
+                                    style={{
+                                        padding: '14px 24px',
+                                        background: 'var(--accent-purple)',
+                                        border: 'none',
+                                        borderRadius: '10px',
+                                        color: 'white',
+                                        fontSize: '14px',
+                                        fontWeight: '500',
+                                        cursor: 'pointer',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: '8px'
+                                    }}
+                                >
+                                    Load Video
+                                </button>
+                            </div>
                         </div>
                     )}
 
-                    {/* Video Ready - Start Analysis */}
-                    {videoId && !jobId && !results && (
+                    {/* Video Ready - Timeline Clipper & Analysis */}
+                    {videoId && !jobId && !results && (() => {
+                        const duration = videoMeta?.duration_seconds || 0;
+                        const effectiveEnd = clipEndTime || duration;
+                        const clipDuration = effectiveEnd - clipStartTime;
+                        const startPct = duration > 0 ? (clipStartTime / duration) * 100 : 0;
+                        const endPct = duration > 0 ? (effectiveEnd / duration) * 100 : 100;
+
+                        const getTimeFromEvent = (e, trackEl) => {
+                            if (!trackEl || !duration) return 0;
+                            const rect = trackEl.getBoundingClientRect();
+                            const pct = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+                            return pct * duration;
+                        };
+
+                        return (
                         <div style={{
                             background: 'var(--bg-surface)',
                             borderRadius: '16px',
                             padding: '24px',
                             marginBottom: '20px',
                             border: '1px solid var(--border)',
-                            textAlign: 'center'
                         }}>
-                            <div style={{
-                                width: '60px',
-                                height: '60px',
-                                borderRadius: '50%',
-                                background: 'rgba(34,197,94,0.15)',
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                                margin: '0 auto 16px'
-                            }}>
-                                <Icons.Check />
-                            </div>
-                            <h3 style={{ fontSize: '18px', fontWeight: '600', marginBottom: '8px' }}>
+                            <h3 style={{ fontSize: '18px', fontWeight: '600', marginBottom: '4px' }}>
                                 Video Ready for Analysis
                             </h3>
-                            <p style={{ fontSize: '14px', color: 'var(--text-muted)', marginBottom: '24px' }}>
-                                Your video has been processed. Start AI analysis to find viral clips.
+                            <p style={{ fontSize: '14px', color: 'var(--text-muted)', marginBottom: '16px' }}>
+                                {duration > 300
+                                    ? 'Select the section you want to analyze by dragging the handles below.'
+                                    : 'Your video is ready. Click Start Analysis to begin.'}
                             </p>
-                            <button
-                                onClick={() => startAnalysisForVideo(videoId)}
-                                disabled={isLoading}
+
+                            {/* Video Player */}
+                            <video
+                                ref={videoRef}
+                                src={`${apiBase}/videos/${videoId}/stream`}
                                 style={{
-                                    padding: '16px 32px',
-                                    background: 'linear-gradient(135deg, var(--accent-purple) 0%, var(--accent-blue) 100%)',
-                                    border: 'none',
-                                    borderRadius: '12px',
-                                    color: 'white',
-                                    fontSize: '16px',
-                                    fontWeight: '600',
-                                    cursor: 'pointer',
-                                    display: 'inline-flex',
-                                    alignItems: 'center',
-                                    gap: '8px',
-                                    boxShadow: '0 4px 20px rgba(168,85,247,0.3)'
+                                    width: '100%',
+                                    maxHeight: '400px',
+                                    borderRadius: '8px',
+                                    background: '#000',
+                                    marginBottom: '12px',
                                 }}
-                            >
-                                <Icons.Wand />
-                                Start AI Analysis
-                            </button>
+                                controls
+                                preload="metadata"
+                            />
+
+                            {/* Timeline Clipper */}
+                            {duration > 0 && (
+                                <div style={{ marginBottom: '16px' }}>
+                                    {/* Timeline Track */}
+                                    <div
+                                        style={{
+                                            position: 'relative',
+                                            height: '56px',
+                                            borderRadius: '8px',
+                                            overflow: 'hidden',
+                                            border: '1px solid var(--border)',
+                                            background: 'var(--bg-elevated)',
+                                            cursor: 'pointer',
+                                            userSelect: 'none',
+                                        }}
+                                        onClick={(e) => {
+                                            const track = e.currentTarget;
+                                            const t = getTimeFromEvent(e, track);
+                                            if (videoRef.current) videoRef.current.currentTime = t;
+                                        }}
+                                    >
+                                        {/* Thumbnail strip */}
+                                        <div style={{
+                                            display: 'flex',
+                                            height: '100%',
+                                            position: 'absolute',
+                                            top: 0, left: 0, right: 0, bottom: 0,
+                                        }}>
+                                            {timelineThumbs.length > 0 ? timelineThumbs.map((thumb, i) => (
+                                                <img
+                                                    key={i}
+                                                    src={`data:image/jpeg;base64,${thumb.data}`}
+                                                    alt=""
+                                                    style={{
+                                                        flex: 1,
+                                                        height: '100%',
+                                                        objectFit: 'cover',
+                                                        pointerEvents: 'none',
+                                                    }}
+                                                />
+                                            )) : (
+                                                <div
+                                                    onClick={(e) => { e.stopPropagation(); fetchTimelineThumbs(); }}
+                                                    style={{
+                                                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                                        width: '100%', color: 'var(--accent-blue)', fontSize: '13px',
+                                                        cursor: 'pointer', fontWeight: '500',
+                                                    }}
+                                                >
+                                                    {thumbsLoading ? 'Loading thumbnails...' : 'Click to load timeline thumbnails'}
+                                                </div>
+                                            )}
+                                        </div>
+
+                                        {/* Dimmed region: before start */}
+                                        <div style={{
+                                            position: 'absolute', top: 0, left: 0, bottom: 0,
+                                            width: `${startPct}%`,
+                                            background: 'rgba(0,0,0,0.65)',
+                                            pointerEvents: 'none',
+                                        }} />
+
+                                        {/* Dimmed region: after end */}
+                                        <div style={{
+                                            position: 'absolute', top: 0, right: 0, bottom: 0,
+                                            width: `${100 - endPct}%`,
+                                            background: 'rgba(0,0,0,0.65)',
+                                            pointerEvents: 'none',
+                                        }} />
+
+                                        {/* Selected region border */}
+                                        <div style={{
+                                            position: 'absolute', top: 0, bottom: 0,
+                                            left: `${startPct}%`,
+                                            width: `${endPct - startPct}%`,
+                                            borderTop: '2px solid var(--accent-blue)',
+                                            borderBottom: '2px solid var(--accent-blue)',
+                                            pointerEvents: 'none',
+                                        }} />
+
+                                        {/* Start handle */}
+                                        <div
+                                            style={{
+                                                position: 'absolute', top: 0, bottom: 0,
+                                                left: `${startPct}%`,
+                                                width: '10px',
+                                                marginLeft: '-5px',
+                                                background: 'var(--accent-blue)',
+                                                cursor: 'ew-resize',
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                justifyContent: 'center',
+                                                zIndex: 10,
+                                                borderRadius: '3px 0 0 3px',
+                                            }}
+                                            onMouseDown={(e) => {
+                                                e.stopPropagation();
+                                                const track = e.currentTarget.parentElement;
+                                                const onMove = (ev) => {
+                                                    const t = getTimeFromEvent(ev, track);
+                                                    const clamped = Math.max(0, Math.min(t, effectiveEnd - 10));
+                                                    setClipStartTime(clamped);
+                                                    if (videoRef.current) videoRef.current.currentTime = clamped;
+                                                };
+                                                const onUp = () => {
+                                                    document.removeEventListener('mousemove', onMove);
+                                                    document.removeEventListener('mouseup', onUp);
+                                                };
+                                                document.addEventListener('mousemove', onMove);
+                                                document.addEventListener('mouseup', onUp);
+                                            }}
+                                        >
+                                            <div style={{ width: '2px', height: '16px', background: 'rgba(255,255,255,0.7)', borderRadius: '1px' }} />
+                                        </div>
+
+                                        {/* End handle */}
+                                        <div
+                                            style={{
+                                                position: 'absolute', top: 0, bottom: 0,
+                                                left: `${endPct}%`,
+                                                width: '10px',
+                                                marginLeft: '-5px',
+                                                background: 'var(--accent-blue)',
+                                                cursor: 'ew-resize',
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                justifyContent: 'center',
+                                                zIndex: 10,
+                                                borderRadius: '0 3px 3px 0',
+                                            }}
+                                            onMouseDown={(e) => {
+                                                e.stopPropagation();
+                                                const track = e.currentTarget.parentElement;
+                                                const onMove = (ev) => {
+                                                    const t = getTimeFromEvent(ev, track);
+                                                    const clamped = Math.min(duration, Math.max(t, clipStartTime + 10));
+                                                    setClipEndTime(clamped);
+                                                    if (videoRef.current) videoRef.current.currentTime = clamped;
+                                                };
+                                                const onUp = () => {
+                                                    document.removeEventListener('mousemove', onMove);
+                                                    document.removeEventListener('mouseup', onUp);
+                                                };
+                                                document.addEventListener('mousemove', onMove);
+                                                document.addEventListener('mouseup', onUp);
+                                            }}
+                                        >
+                                            <div style={{ width: '2px', height: '16px', background: 'rgba(255,255,255,0.7)', borderRadius: '1px' }} />
+                                        </div>
+                                    </div>
+
+                                    {/* Time labels */}
+                                    <div style={{
+                                        display: 'flex',
+                                        justifyContent: 'space-between',
+                                        marginTop: '6px',
+                                        fontSize: '12px',
+                                        fontFamily: 'var(--font-mono)',
+                                        color: 'var(--text-muted)',
+                                    }}>
+                                        <span>0:00</span>
+                                        <span>{formatTime(duration)}</span>
+                                    </div>
+
+                                    {/* Clip info */}
+                                    <div style={{
+                                        display: 'flex',
+                                        justifyContent: 'center',
+                                        alignItems: 'center',
+                                        gap: '16px',
+                                        marginTop: '12px',
+                                        padding: '10px 16px',
+                                        background: 'var(--bg-elevated)',
+                                        borderRadius: '8px',
+                                        fontSize: '13px',
+                                    }}>
+                                        <span style={{ color: 'var(--text-muted)' }}>Start:</span>
+                                        <span style={{ color: 'var(--accent-blue)', fontFamily: 'var(--font-mono)', fontWeight: '600' }}>
+                                            {formatTime(clipStartTime)}
+                                        </span>
+                                        <span style={{ color: 'var(--text-muted)' }}>End:</span>
+                                        <span style={{ color: 'var(--accent-blue)', fontFamily: 'var(--font-mono)', fontWeight: '600' }}>
+                                            {formatTime(effectiveEnd)}
+                                        </span>
+                                        <span style={{ color: 'var(--text-muted)' }}>Duration:</span>
+                                        <span style={{ color: 'var(--accent-purple)', fontFamily: 'var(--font-mono)', fontWeight: '600' }}>
+                                            {formatTime(clipDuration)}
+                                        </span>
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* Start Analysis Button */}
+                            <div style={{ textAlign: 'center' }}>
+                                <button
+                                    onClick={() => startAnalysisForVideo(videoId)}
+                                    disabled={isLoading}
+                                    style={{
+                                        padding: '16px 32px',
+                                        background: 'linear-gradient(135deg, var(--accent-purple) 0%, var(--accent-blue) 100%)',
+                                        border: 'none',
+                                        borderRadius: '12px',
+                                        color: 'white',
+                                        fontSize: '16px',
+                                        fontWeight: '600',
+                                        cursor: 'pointer',
+                                        display: 'inline-flex',
+                                        alignItems: 'center',
+                                        gap: '8px',
+                                        boxShadow: '0 4px 20px rgba(168,85,247,0.3)'
+                                    }}
+                                >
+                                    <Icons.Wand />
+                                    {clipDuration < duration - 1
+                                        ? `Analyze ${formatTime(clipDuration)} of video`
+                                        : 'Start AI Analysis'}
+                                </button>
+                            </div>
                         </div>
-                    )}
+                        );
+                    })()}
 
                     {/* Analysis Progress */}
                     {analysisStatus && analysisStatus !== 'completed' && !results && (
@@ -4038,10 +4523,46 @@
                                     marginBottom: '20px',
                                     border: '1px solid var(--border)'
                                 }}>
-                                    <h3 style={{ fontSize: '18px', fontWeight: '600', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                        <Icons.TrendingUp />
-                                        Suggested Viral Clips
-                                    </h3>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+                                        <h3 style={{ fontSize: '18px', fontWeight: '600', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                            <Icons.TrendingUp />
+                                            Suggested Viral Clips
+                                        </h3>
+                                        <button
+                                            onClick={() => { setBatchExporting(true); batchExportAll(); }}
+                                            style={{
+                                                padding: '8px 16px',
+                                                background: 'linear-gradient(135deg, var(--accent-purple) 0%, var(--accent-blue) 100%)',
+                                                border: 'none',
+                                                borderRadius: '8px',
+                                                color: 'white',
+                                                fontSize: '13px',
+                                                fontWeight: '500',
+                                                cursor: 'pointer',
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                gap: '6px'
+                                            }}
+                                        >
+                                            <Icons.Download />
+                                            {batchExporting ? `Exporting...` : `Export All (${results.clips.length})`}
+                                        </button>
+                                    </div>
+
+                                    {batchProgress && (
+                                        <div style={{ marginBottom: '12px', padding: '12px', background: 'var(--bg-elevated)', borderRadius: '8px', border: '1px solid var(--border)' }}>
+                                            <div style={{ fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '8px' }}>{batchProgress.status}</div>
+                                            <div style={{ background: 'var(--bg-base)', borderRadius: '4px', height: '6px', overflow: 'hidden' }}>
+                                                <div style={{
+                                                    width: `${batchProgress.total ? (batchProgress.current / batchProgress.total * 100) : 0}%`,
+                                                    height: '100%',
+                                                    background: 'linear-gradient(90deg, var(--accent-purple), var(--accent-blue))',
+                                                    transition: 'width 0.3s ease',
+                                                    borderRadius: '4px',
+                                                }} />
+                                            </div>
+                                        </div>
+                                    )}
 
                                     <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
                                         {results.clips.map((clip, index) => (

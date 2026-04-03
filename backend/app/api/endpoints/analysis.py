@@ -41,6 +41,24 @@ router = APIRouter()
 settings = get_settings()
 
 
+@router.get("/{video_id}/latest", response_model=AnalysisJobResponse)
+async def get_latest_analysis(
+    video_id: uuid.UUID,
+    session: AsyncSession = Depends(get_async_session),
+):
+    """Get the most recent analysis job for a video."""
+    result = await session.execute(
+        select(AnalysisJob)
+        .filter(AnalysisJob.video_id == video_id)
+        .order_by(AnalysisJob.created_at.desc())
+        .limit(1)
+    )
+    job = result.scalar_one_or_none()
+    if not job:
+        raise HTTPException(status_code=404, detail="No analysis found for this video")
+    return job
+
+
 @router.post("/{video_id}/start", response_model=AnalysisJobResponse)
 async def start_analysis(
     video_id: uuid.UUID,
@@ -111,10 +129,10 @@ async def start_analysis(
         run_analysis_pipeline.delay(str(job.id))
         celery_available = True
         logger.info(f"Analysis job queued via Celery: {job.id}")
-    except (ImportError, redis.ConnectionError, redis.TimeoutError):
-        logger.info("Redis/Celery not available, using direct execution")
+    except ImportError:
+        logger.info("Redis/Celery not installed, using direct execution")
     except Exception as e:
-        logger.warning(f"Celery failed ({e}), using direct execution")
+        logger.info(f"Redis/Celery not available ({e}), using direct execution")
 
     # Fallback: Run pipeline directly in background
     if not celery_available:

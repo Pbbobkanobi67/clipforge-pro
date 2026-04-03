@@ -3,6 +3,7 @@
 import logging
 import uuid
 from pathlib import Path
+from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import FileResponse
@@ -33,7 +34,7 @@ EXPORT_DIR.mkdir(parents=True, exist_ok=True)
 @router.post("/{job_id}/xml/fcpxml")
 async def export_fcpxml(
     job_id: uuid.UUID,
-    request: XMLExportRequest,
+    request: Optional[XMLExportRequest] = None,
     session: AsyncSession = Depends(get_async_session),
 ):
     """
@@ -41,6 +42,8 @@ async def export_fcpxml(
 
     Creates an FCPXML file that can be imported into Final Cut Pro X.
     """
+    if request is None:
+        request = XMLExportRequest()
     # Get analysis job
     job_result = await session.execute(
         select(AnalysisJob).filter(AnalysisJob.id == job_id)
@@ -139,7 +142,7 @@ async def export_fcpxml(
 @router.post("/{job_id}/xml/premiere")
 async def export_premiere_xml(
     job_id: uuid.UUID,
-    request: XMLExportRequest,
+    request: Optional[XMLExportRequest] = None,
     session: AsyncSession = Depends(get_async_session),
 ):
     """
@@ -147,6 +150,8 @@ async def export_premiere_xml(
 
     Creates an XML file that can be imported into Adobe Premiere Pro.
     """
+    if request is None:
+        request = XMLExportRequest()
     # Get analysis job
     job_result = await session.execute(
         select(AnalysisJob).filter(AnalysisJob.id == job_id)

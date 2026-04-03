@@ -6,8 +6,13 @@ import uuid
 from pathlib import Path
 from typing import Optional
 
+import asyncio
+import base64
+import mimetypes
+
 import aiofiles
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, BackgroundTasks
+from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile, BackgroundTasks
+from fastapi.responses import StreamingResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -237,6 +242,145 @@ def _download_video_task(video_id: uuid.UUID, url: str, output_dir: str):
             session.commit()
     finally:
         session.close()
+
+
+@router.get("/{video_id}/stream")
+async def stream_video(
+    video_id: uuid.UUID,
+    request: Request,
+    session: AsyncSession = Depends(get_async_session),
+):
+    """Stream video file with Range request support for seeking."""
+    result = await session.execute(select(Video).filter(Video.id == video_id))
+    video = result.scalar_one_or_none()
+
+    if not video:
+        raise HTTPException(status_code=404, detail="Video not found")
+
+    file_path = Path(video.file_path)
+    if not file_path.is_absolute():
+        file_path = Path.cwd() / video.file_path
+    if not file_path.exists():
+        raise HTTPException(status_code=404, detail="Video file not found on disk")
+
+    file_size = file_path.stat().st_size
+    content_type = mimetypes.guess_type(str(file_path))[0] or "video/mp4"
+
+    range_header = request.headers.get("range")
+    if range_header:
+        # Parse range: "bytes=START-END"
+        range_spec = range_header.replace("bytes=", "")
+        parts = range_spec.split("-")
+        start = int(parts[0]) if parts[0] else 0
+        end = int(parts[1]) if parts[1] else file_size - 1
+        end = min(end, file_size - 1)
+        chunk_size = end - start + 1
+
+        async def ranged_file():
+            async with aiofiles.open(file_path, "rb") as f:
+                await f.seek(start)
+                remaining = chunk_size
+                while remaining > 0:
+                    read_size = min(1024 * 1024, remaining)
+                    data = await f.read(read_size)
+                    if not data:
+                        break
+                    remaining -= len(data)
+                    yield data
+
+        return StreamingResponse(
+            ranged_file(),
+            status_code=206,
+            media_type=content_type,
+            headers={
+                "Content-Range": f"bytes {start}-{end}/{file_size}",
+                "Accept-Ranges": "bytes",
+                "Content-Length": str(chunk_size),
+            },
+        )
+    else:
+        async def full_file():
+            async with aiofiles.open(file_path, "rb") as f:
+                while chunk := await f.read(1024 * 1024):
+                    yield chunk
+
+        return StreamingResponse(
+            full_file(),
+            media_type=content_type,
+            headers={
+                "Accept-Ranges": "bytes",
+                "Content-Length": str(file_size),
+            },
+        )
+
+
+@router.get("/{video_id}/thumbnails")
+async def get_timeline_thumbnails(
+    video_id: uuid.UUID,
+    count: int = Query(default=20, ge=1, le=60),
+    session: AsyncSession = Depends(get_async_session),
+):
+    """Generate evenly-spaced frame thumbnails for the timeline strip."""
+    result = await session.execute(select(Video).filter(Video.id == video_id))
+    video = result.scalar_one_or_none()
+
+    if not video:
+        raise HTTPException(status_code=404, detail="Video not found")
+    if not video.duration_seconds:
+        raise HTTPException(status_code=400, detail="Video duration unknown")
+
+    video_path = Path(video.file_path)
+    if not video_path.is_absolute():
+        video_path = Path.cwd() / video.file_path
+
+    # Cache directory for this video's thumbnails
+    cache_dir = Path(settings.cache_path) / "timeline_thumbs" / str(video_id)
+    if not cache_dir.is_absolute():
+        cache_dir = Path.cwd() / cache_dir
+    cache_dir.mkdir(parents=True, exist_ok=True)
+
+    duration = video.duration_seconds
+    thumbnails = []
+
+    for i in range(count):
+        timestamp = duration * i / count
+        thumb_path = cache_dir / f"thumb_{i:03d}_{count}.jpg"
+
+        # Generate if not cached
+        if not thumb_path.exists():
+            try:
+                cmd = [
+                    "ffmpeg",
+                    "-ss", str(timestamp),
+                    "-i", str(video_path),
+                    "-frames:v", "1",
+                    "-vf", "scale=160:-1",
+                    "-q:v", "5",
+                    "-update", "1",
+                    "-y",
+                    str(thumb_path),
+                ]
+                proc = await asyncio.create_subprocess_exec(
+                    *cmd,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                )
+                _, stderr = await proc.communicate()
+                if proc.returncode != 0:
+                    logger.warning(f"ffmpeg failed for thumb at {timestamp}s: {stderr.decode()[:200]}")
+                    continue
+            except Exception as e:
+                logger.warning(f"Failed to extract thumbnail at {timestamp}s: {e}")
+                continue
+
+        if thumb_path.exists():
+            data = thumb_path.read_bytes()
+            thumbnails.append({
+                "timestamp": round(timestamp, 2),
+                "data": base64.b64encode(data).decode(),
+            })
+
+    return {"thumbnails": thumbnails, "duration": duration, "count": len(thumbnails)}
 
 
 @router.get("/{video_id}", response_model=VideoResponse)

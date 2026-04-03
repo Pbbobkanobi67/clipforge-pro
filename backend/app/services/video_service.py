@@ -296,6 +296,17 @@ class VideoService:
         outro_text: Optional[str] = None,
         outro_cta: Optional[str] = None,
         outro_bg_color: str = "#000000",
+        # Auto-zoom
+        auto_zoom: bool = False,
+        # Silence removal
+        remove_silence: bool = False,
+        silence_threshold: str = "-30dB",
+        silence_min_duration: float = 0.5,
+        # Video transitions
+        video_fade: bool = False,
+        fade_in_duration: float = 0.4,
+        fade_out_duration: float = 0.4,
+        captions=None,  # Accept but ignore (handled by ass_subtitle_path)
     ) -> str:
         """
         Enhanced clip export with animated captions, reframe, logo, and outro.
@@ -344,7 +355,22 @@ class VideoService:
             height = int(resolution.replace("p", ""))
             video_filters.append(f"scale=-2:{height}")
 
-        # 3. ASS subtitles (animated captions)
+        # 3. Auto-zoom: gentle zoom pulse for visual interest (1.0x to 1.15x and back)
+        if auto_zoom:
+            # Smooth zoom in-out cycle over 4 seconds using zoompan
+            # Use a gentle sine-wave zoom: 1.0 + 0.08*sin(t)
+            video_filters.append(
+                "zoompan=z='1+0.08*sin(2*PI*in/120)'"
+                ":x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)'"
+                ":d=1:s=hd720:fps=30"
+            )
+
+        # 4. Video fade transitions (fade-in at start, fade-out at end)
+        if video_fade:
+            video_filters.append(f"fade=t=in:st=0:d={fade_in_duration}")
+            video_filters.append(f"fade=t=out:st={duration - fade_out_duration}:d={fade_out_duration}")
+
+        # 5. ASS subtitles (animated captions)
         if ass_subtitle_path and Path(ass_subtitle_path).exists():
             # Escape path for ffmpeg filter
             escaped_path = ass_subtitle_path.replace("\\", "/").replace(":", "\\:")
@@ -437,8 +463,55 @@ class VideoService:
             if returncode != 0:
                 raise Exception(f"Clip export failed: {stderr.decode()}")
 
+        # Post-processing: remove silence
+        if remove_silence and Path(output_path).exists():
+            await self._remove_silence(
+                input_path=output_path,
+                threshold=silence_threshold,
+                min_duration=silence_min_duration,
+            )
+
         logger.info(f"Enhanced clip exported: {output_path}")
         return output_path
+
+    async def _remove_silence(
+        self,
+        input_path: str,
+        threshold: str = "-30dB",
+        min_duration: float = 0.5,
+    ) -> None:
+        """Remove silent sections from a video using ffmpeg silenceremove filter.
+
+        Operates in-place: replaces the input file with the silence-removed version.
+        """
+        temp_path = input_path.replace(".mp4", "_nosilence.mp4")
+        # silenceremove: stop_periods=-1 removes all silence throughout
+        # stop_duration = min gap before it's considered silence
+        # stop_threshold = audio level below which is "silence"
+        af = (
+            f"silenceremove=stop_periods=-1"
+            f":stop_duration={min_duration}"
+            f":stop_threshold={threshold}"
+        )
+        cmd = [
+            "ffmpeg",
+            "-i", input_path,
+            "-af", af,
+            "-c:v", "copy",
+            "-y",
+            temp_path,
+        ]
+
+        returncode, _, stderr = await asyncio.to_thread(_run_subprocess, cmd)
+        if returncode != 0:
+            logger.warning(f"Silence removal failed, keeping original: {stderr.decode()[:200]}")
+            Path(temp_path).unlink(missing_ok=True)
+            return
+
+        # Replace original with silence-removed version
+        import shutil
+        shutil.move(temp_path, input_path)
+        logger.info(f"Silence removed from: {input_path}")
 
     async def _add_outro(
         self,

@@ -66,6 +66,8 @@ class AnalysisStartRequest(BaseModel):
     min_clip_duration: float = Field(default=15.0, description="Minimum clip duration in seconds")
     max_clip_duration: float = Field(default=90.0, description="Maximum clip duration in seconds")
     target_clips: int = Field(default=5, description="Target number of clips to suggest")
+    clip_start_time: Optional[float] = Field(default=None, description="Start time in seconds for trimmed analysis")
+    clip_end_time: Optional[float] = Field(default=None, description="End time in seconds for trimmed analysis")
 
 
 class AnalysisJobResponse(BaseModel):
@@ -250,7 +252,6 @@ class ClipSuggestionResponse(BaseModel):
 class ClipExportRequest(BaseModel):
     """Schema for clip export request."""
 
-    clip_id: UUID
     format: str = Field(default="mp4", description="Output format")
     resolution: Optional[str] = Field(default=None, description="Output resolution (e.g., '1080p')")
     include_captions: bool = Field(default=False, description="Burn in captions")
@@ -680,6 +681,9 @@ class EnhancedClipExportRequest(BaseModel):
     # Caption options
     include_captions: bool = Field(default=False)
     caption_style_id: Optional[UUID] = None
+    remove_fillers: bool = Field(default=True, description="Remove filler words (um, uh, etc.)")
+    add_emojis: bool = Field(default=False, description="Auto-insert relevant emojis in captions")
+    keyword_highlight: bool = Field(default=True, description="Highlight important keywords")
 
     # Reframe options
     reframe: bool = Field(default=False)
@@ -693,6 +697,41 @@ class EnhancedClipExportRequest(BaseModel):
     # B-roll options
     include_broll: bool = Field(default=False, description="Include approved B-roll insertions")
     broll_transition_duration: float = Field(default=0.5, ge=0.0, le=2.0, description="B-roll crossfade duration")
+
+    # Zoom effect
+    auto_zoom: bool = Field(default=False, description="Apply dynamic auto-zoom on speaker")
+
+    # Silence removal
+    remove_silence: bool = Field(default=False, description="Remove silent pauses from clip")
+
+    # Video transitions
+    video_fade: bool = Field(default=False, description="Add fade-in/fade-out transitions")
+
+
+class BatchExportRequest(BaseModel):
+    """Schema for batch exporting multiple clips."""
+
+    clip_ids: list[UUID] = Field(..., description="List of clip IDs to export")
+    format: str = Field(default="mp4")
+    include_captions: bool = Field(default=True)
+    caption_style_id: Optional[UUID] = None
+    remove_fillers: bool = Field(default=True)
+    add_emojis: bool = Field(default=False)
+    keyword_highlight: bool = Field(default=True)
+    brand_template_id: Optional[UUID] = None
+    aspect_ratio: Optional[str] = None
+    auto_zoom: bool = Field(default=False)
+    remove_silence: bool = Field(default=False)
+    video_fade: bool = Field(default=False)
+
+
+class BatchExportResponse(BaseModel):
+    """Response for batch export."""
+
+    total: int
+    succeeded: int
+    failed: int
+    results: list[dict]
 
 
 class XMLExportRequest(BaseModel):

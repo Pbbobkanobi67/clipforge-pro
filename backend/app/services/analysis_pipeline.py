@@ -1,5 +1,6 @@
 """Standalone analysis pipeline that can run without Celery."""
 
+import asyncio
 import logging
 import uuid
 from datetime import datetime
@@ -80,7 +81,36 @@ async def run_pipeline_async(
         "clips": None,
     }
 
+    trimmed_path = None
+
     try:
+        # Stage 0: Trim video if clip times specified
+        clip_start = config.get("clip_start_time")
+        clip_end = config.get("clip_end_time")
+        if clip_start is not None and clip_end is not None and clip_end > clip_start:
+            update_job_status(session, job_id, AnalysisStatus.PROCESSING, 2, "Trimming video segment")
+            trimmed_path = str(Path(settings.cache_path) / f"{job_id}_trimmed.mp4")
+            duration = clip_end - clip_start
+            cmd = [
+                "ffmpeg",
+                "-ss", str(clip_start),
+                "-i", video_path,
+                "-t", str(duration),
+                "-c", "copy",
+                "-y",
+                trimmed_path,
+            ]
+            proc = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            _, stderr = await proc.communicate()
+            if proc.returncode != 0:
+                raise Exception(f"Video trimming failed: {stderr.decode()[:500]}")
+            video_path = trimmed_path
+            logger.info(f"Trimmed video to {duration:.1f}s for job {job_id}")
+
         # Stage 1: Extract audio (5%)
         update_job_status(session, job_id, AnalysisStatus.PROCESSING, 5, "Extracting audio")
         audio_path = str(Path(settings.cache_path) / f"{job_id}.wav")
@@ -180,6 +210,8 @@ async def run_pipeline_async(
 
         # Cleanup temp files
         Path(audio_path).unlink(missing_ok=True)
+        if trimmed_path:
+            Path(trimmed_path).unlink(missing_ok=True)
 
         return {"success": True, "progress": 100}
 

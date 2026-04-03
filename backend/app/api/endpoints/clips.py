@@ -12,11 +12,68 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
 from app.models.database import AnalysisJob, ClipSuggestion, Video, CaptionStyle, BrandTemplate, get_async_session
-from app.models.schemas import ClipExportRequest, ClipSuggestionResponse, EnhancedClipExportRequest
+from app.models.schemas import ClipExportRequest, ClipSuggestionResponse, EnhancedClipExportRequest, BatchExportRequest, BatchExportResponse
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
 settings = get_settings()
+
+
+@router.post("/batch/export", response_model=BatchExportResponse)
+async def batch_export_clips(
+    request: BatchExportRequest,
+    session: AsyncSession = Depends(get_async_session),
+):
+    """
+    Export multiple clips at once with the same settings.
+    Processes clips sequentially and returns a summary.
+    """
+    results = []
+    succeeded = 0
+    failed = 0
+
+    for clip_id in request.clip_ids:
+        try:
+            enhanced_req = EnhancedClipExportRequest(
+                format=request.format,
+                include_captions=request.include_captions,
+                caption_style_id=request.caption_style_id,
+                remove_fillers=request.remove_fillers,
+                add_emojis=request.add_emojis,
+                keyword_highlight=request.keyword_highlight,
+                brand_template_id=request.brand_template_id,
+                aspect_ratio=request.aspect_ratio,
+                auto_zoom=request.auto_zoom,
+                remove_silence=request.remove_silence,
+                video_fade=request.video_fade,
+            )
+
+            result = await export_clip_enhanced(
+                clip_id=clip_id,
+                request=enhanced_req,
+                session=session,
+            )
+            results.append({
+                "clip_id": str(clip_id),
+                "status": "success",
+                "export_path": result.export_path,
+            })
+            succeeded += 1
+        except Exception as e:
+            logger.error(f"Batch export failed for clip {clip_id}: {e}")
+            results.append({
+                "clip_id": str(clip_id),
+                "status": "failed",
+                "error": str(e),
+            })
+            failed += 1
+
+    return BatchExportResponse(
+        total=len(request.clip_ids),
+        succeeded=succeeded,
+        failed=failed,
+        results=results,
+    )
 
 
 @router.get("/{job_id}", response_model=list[ClipSuggestionResponse])
@@ -70,7 +127,7 @@ async def get_clip_detail(
 @router.post("/{clip_id}/export", response_model=ClipSuggestionResponse)
 async def export_clip(
     clip_id: uuid.UUID,
-    request: ClipExportRequest = ClipExportRequest(clip_id=uuid.uuid4()),
+    request: ClipExportRequest = ClipExportRequest(),
     background_tasks: BackgroundTasks = None,
     session: AsyncSession = Depends(get_async_session),
 ):
@@ -109,44 +166,59 @@ async def export_clip(
     # Generate output path
     output_filename = f"clip_{clip_id}.{request.format}"
     output_path = settings.clip_storage_path / output_filename
+    if not output_path.is_absolute():
+        output_path = Path.cwd() / output_path
+
+    # Ensure clips directory exists
+    output_path.parent.mkdir(parents=True, exist_ok=True)
 
     # Check if already exported
-    if clip.exported and clip.export_path and Path(clip.export_path).exists():
-        return ClipSuggestionResponse.model_validate(clip)
+    if clip.exported and clip.export_path:
+        existing = Path(clip.export_path)
+        if not existing.is_absolute():
+            existing = Path.cwd() / clip.export_path
+        if existing.exists():
+            return ClipSuggestionResponse.model_validate(clip)
+
+    # Compute timestamp offset for trimmed analysis
+    config = job.config or {}
+    time_offset = config.get("clip_start_time", 0) or 0
+
+    # Resolve video path
+    video_path = Path(video.file_path)
+    if not video_path.is_absolute():
+        video_path = Path.cwd() / video.file_path
+
+    # Export args (with offset-adjusted times for ffmpeg, original times for DB queries)
+    export_kwargs = dict(
+        clip_id=clip_id,
+        video_path=str(video_path),
+        output_path=str(output_path),
+        start_time=clip.start_time + time_offset,
+        end_time=clip.end_time + time_offset,
+        format=request.format,
+        resolution=request.resolution,
+        include_captions=request.include_captions,
+        job_id=job.id,
+        db_start_time=clip.start_time if time_offset else None,
+        db_end_time=clip.end_time if time_offset else None,
+    )
 
     # Export in background
     if background_tasks:
-        background_tasks.add_task(
-            _export_clip_task,
-            clip_id=clip_id,
-            video_path=video.file_path,
-            output_path=str(output_path),
-            start_time=clip.start_time,
-            end_time=clip.end_time,
-            format=request.format,
-            resolution=request.resolution,
-            include_captions=request.include_captions,
-            job_id=job.id,
-        )
+        background_tasks.add_task(_export_clip_task, **export_kwargs)
+        # Set export_path but NOT exported=True -- task will set it when done
+        clip.export_path = str(output_path)
+        await session.commit()
+        await session.refresh(clip)
     else:
         # Synchronous export for immediate response
-        await _export_clip_task(
-            clip_id=clip_id,
-            video_path=video.file_path,
-            output_path=str(output_path),
-            start_time=clip.start_time,
-            end_time=clip.end_time,
-            format=request.format,
-            resolution=request.resolution,
-            include_captions=request.include_captions,
-            job_id=job.id,
-        )
-
-    # Update clip record
-    clip.export_path = str(output_path)
-    clip.exported = True
-    await session.commit()
-    await session.refresh(clip)
+        await _export_clip_task(**export_kwargs)
+        # File exists now, safe to mark exported
+        clip.export_path = str(output_path)
+        clip.exported = True
+        await session.commit()
+        await session.refresh(clip)
 
     return ClipSuggestionResponse.model_validate(clip)
 
@@ -161,13 +233,24 @@ async def _export_clip_task(
     resolution: Optional[str],
     include_captions: bool,
     job_id: uuid.UUID,
+    db_start_time: Optional[float] = None,
+    db_end_time: Optional[float] = None,
 ):
-    """Background task to export clip."""
+    """Background task to export clip.
+
+    start_time/end_time: times relative to the source video file (offset-adjusted).
+    db_start_time/db_end_time: original times in the DB (for caption segment queries).
+    If db times not provided, assumes start_time/end_time match DB values.
+    """
     from app.services.video_service import VideoService
     from app.models.database import SyncSessionLocal
 
     video_service = VideoService()
     session = SyncSessionLocal()
+
+    # For caption queries, use DB times (no offset) if provided
+    caption_start = db_start_time if db_start_time is not None else start_time
+    caption_end = db_end_time if db_end_time is not None else end_time
 
     try:
         # Get captions if needed
@@ -184,14 +267,14 @@ async def _export_clip_task(
                 segments = (
                     session.query(TranscriptionSegment)
                     .filter(TranscriptionSegment.transcription_id == transcription.id)
-                    .filter(TranscriptionSegment.start_time >= start_time)
-                    .filter(TranscriptionSegment.end_time <= end_time)
+                    .filter(TranscriptionSegment.start_time >= caption_start)
+                    .filter(TranscriptionSegment.end_time <= caption_end)
                     .all()
                 )
                 captions = [
                     {
-                        "start": seg.start_time - start_time,
-                        "end": seg.end_time - start_time,
+                        "start": seg.start_time - caption_start,
+                        "end": seg.end_time - caption_start,
                         "text": seg.text,
                     }
                     for seg in segments
@@ -227,7 +310,6 @@ async def _export_clip_task(
 async def export_clip_enhanced(
     clip_id: uuid.UUID,
     request: EnhancedClipExportRequest,
-    background_tasks: BackgroundTasks = None,
     session: AsyncSession = Depends(get_async_session),
 ):
     """
@@ -289,45 +371,49 @@ async def export_clip_enhanced(
     suffix = "_" + "_".join(suffix_parts) if suffix_parts else ""
     output_filename = f"clip_{clip_id}{suffix}.{request.format}"
     output_path = settings.clip_storage_path / output_filename
+    if not output_path.is_absolute():
+        output_path = Path.cwd() / output_path
+    output_path.parent.mkdir(parents=True, exist_ok=True)
 
-    # Export with enhanced options
-    if background_tasks:
-        background_tasks.add_task(
-            _export_clip_enhanced_task,
-            clip_id=clip_id,
-            video_path=video.file_path,
-            output_path=str(output_path),
-            start_time=clip.start_time,
-            end_time=clip.end_time,
-            format=request.format,
-            resolution=request.resolution,
-            include_captions=request.include_captions,
-            caption_style_id=str(request.caption_style_id) if request.caption_style_id else None,
-            brand_template_id=str(request.brand_template_id) if request.brand_template_id else None,
-            aspect_ratio=request.aspect_ratio,
-            job_id=job.id,
-            include_broll=request.include_broll,
-            broll_transition_duration=request.broll_transition_duration,
-        )
-    else:
-        await _export_clip_enhanced_task(
-            clip_id=clip_id,
-            video_path=video.file_path,
-            output_path=str(output_path),
-            start_time=clip.start_time,
-            end_time=clip.end_time,
-            format=request.format,
-            resolution=request.resolution,
-            include_captions=request.include_captions,
-            caption_style_id=str(request.caption_style_id) if request.caption_style_id else None,
-            brand_template_id=str(request.brand_template_id) if request.brand_template_id else None,
-            aspect_ratio=request.aspect_ratio,
-            job_id=job.id,
-            include_broll=request.include_broll,
-            broll_transition_duration=request.broll_transition_duration,
-        )
+    # Compute timestamp offset for trimmed analysis
+    config = job.config or {}
+    time_offset = config.get("clip_start_time", 0) or 0
 
-    # Update clip record
+    # Resolve video path
+    video_path = Path(video.file_path)
+    if not video_path.is_absolute():
+        video_path = Path.cwd() / video.file_path
+
+    # Build enhanced export args (with offset-adjusted times for ffmpeg, original for DB queries)
+    enhanced_kwargs = dict(
+        clip_id=clip_id,
+        video_path=str(video_path),
+        output_path=str(output_path),
+        start_time=clip.start_time + time_offset,
+        end_time=clip.end_time + time_offset,
+        format=request.format,
+        resolution=request.resolution,
+        include_captions=request.include_captions,
+        caption_style_id=str(request.caption_style_id) if request.caption_style_id else None,
+        brand_template_id=str(request.brand_template_id) if request.brand_template_id else None,
+        aspect_ratio=request.aspect_ratio,
+        job_id=job.id,
+        include_broll=request.include_broll,
+        broll_transition_duration=request.broll_transition_duration,
+        db_start_time=clip.start_time if time_offset else None,
+        db_end_time=clip.end_time if time_offset else None,
+        remove_fillers=request.remove_fillers,
+        add_emojis=request.add_emojis,
+        keyword_highlight=request.keyword_highlight,
+        auto_zoom=request.auto_zoom,
+        remove_silence=request.remove_silence,
+        video_fade=request.video_fade,
+    )
+
+    # Export synchronously so file exists before response
+    await _export_clip_enhanced_task(**enhanced_kwargs)
+
+    # File exists now, safe to mark exported
     clip.export_path = str(output_path)
     clip.exported = True
     await session.commit()
@@ -351,14 +437,30 @@ async def _export_clip_enhanced_task(
     job_id: uuid.UUID,
     include_broll: bool = False,
     broll_transition_duration: float = 0.5,
+    db_start_time: Optional[float] = None,
+    db_end_time: Optional[float] = None,
+    remove_fillers: bool = True,
+    add_emojis: bool = False,
+    keyword_highlight: bool = True,
+    auto_zoom: bool = False,
+    remove_silence: bool = False,
+    video_fade: bool = False,
 ):
-    """Background task to export clip with enhanced options."""
+    """Background task to export clip with enhanced options.
+
+    start_time/end_time: times relative to the source video (offset-adjusted).
+    db_start_time/db_end_time: original DB times for caption segment queries.
+    """
     from app.services.video_service import VideoService
     from app.services.caption_service import CaptionService
     from app.models.database import SyncSessionLocal, CaptionStyle, BrandTemplate, Transcription, TranscriptionSegment, BRollSuggestion, BRollAsset
 
     video_service = VideoService()
     session = SyncSessionLocal()
+
+    # For caption DB queries, use un-offset times if provided
+    caption_start = db_start_time if db_start_time is not None else start_time
+    caption_end = db_end_time if db_end_time is not None else end_time
 
     try:
         # Get caption style
@@ -384,8 +486,8 @@ async def _export_clip_enhanced_task(
                 segments = (
                     session.query(TranscriptionSegment)
                     .filter(TranscriptionSegment.transcription_id == transcription.id)
-                    .filter(TranscriptionSegment.start_time >= start_time)
-                    .filter(TranscriptionSegment.end_time <= end_time)
+                    .filter(TranscriptionSegment.start_time >= caption_start)
+                    .filter(TranscriptionSegment.end_time <= caption_end)
                     .order_by(TranscriptionSegment.start_time)
                     .all()
                 )
@@ -410,23 +512,27 @@ async def _export_clip_enhanced_task(
                         "margin_bottom": caption_style.margin_bottom,
                         "animation_duration": caption_style.animation_duration,
                         "words_per_line": caption_style.words_per_line,
+                        "keyword_highlight": keyword_highlight,
                     }
 
                     await caption_service.generate_ass_subtitles(
                         segments=[{
-                            "start": seg.start_time - start_time,
-                            "end": seg.end_time - start_time,
+                            "start_time": seg.start_time,
+                            "end_time": seg.end_time,
                             "text": seg.text,
                             "words": seg.words,
                         } for seg in segments],
                         output_path=ass_path,
                         style_config=style_config,
+                        clip_start_offset=caption_start,
+                        remove_fillers=remove_fillers,
+                        add_emojis=add_emojis,
                     )
                 else:
                     captions = [
                         {
-                            "start": seg.start_time - start_time,
-                            "end": seg.end_time - start_time,
+                            "start": seg.start_time - caption_start,
+                            "end": seg.end_time - caption_start,
                             "text": seg.text,
                         }
                         for seg in segments
@@ -468,6 +574,18 @@ async def _export_clip_enhanced_task(
                 export_kwargs["logo_position"] = brand_template.logo_position
                 export_kwargs["logo_size"] = brand_template.logo_size
                 export_kwargs["logo_opacity"] = brand_template.logo_opacity
+
+        # Auto-zoom: gentle zoom effect for visual interest
+        if auto_zoom:
+            export_kwargs["auto_zoom"] = True
+
+        # Silence removal: remove dead air pauses
+        if remove_silence:
+            export_kwargs["remove_silence"] = True
+
+        # Video fade transitions
+        if video_fade:
+            export_kwargs["video_fade"] = True
 
         # Use enhanced export if available, otherwise fall back to basic
         if hasattr(video_service, 'export_clip_enhanced'):
@@ -544,22 +662,83 @@ async def download_clip(
     clip_id: uuid.UUID,
     session: AsyncSession = Depends(get_async_session),
 ):
-    """Download an exported clip file."""
+    """Download an exported clip file. Exports on-demand if not yet exported."""
     result = await session.execute(select(ClipSuggestion).filter(ClipSuggestion.id == clip_id))
     clip = result.scalar_one_or_none()
 
     if not clip:
         raise HTTPException(status_code=404, detail="Clip not found")
 
-    if not clip.exported or not clip.export_path:
-        raise HTTPException(status_code=400, detail="Clip not yet exported")
+    # Resolve relative export path
+    file_path = None
+    if clip.export_path:
+        file_path = Path(clip.export_path)
+        if not file_path.is_absolute():
+            file_path = Path.cwd() / clip.export_path
 
-    file_path = Path(clip.export_path)
+    # If file doesn't exist, do on-demand export
+    if not file_path or not file_path.exists():
+        # Get job and video for export
+        job_result = await session.execute(
+            select(AnalysisJob).filter(AnalysisJob.id == clip.analysis_job_id)
+        )
+        job = job_result.scalar_one_or_none()
+        if not job:
+            raise HTTPException(status_code=404, detail="Analysis job not found")
+
+        video_result = await session.execute(select(Video).filter(Video.id == job.video_id))
+        video = video_result.scalar_one_or_none()
+        if not video:
+            raise HTTPException(status_code=404, detail="Source video not found")
+
+        # Compute timestamp offset for trimmed analysis
+        config = job.config or {}
+        time_offset = config.get("clip_start_time", 0) or 0
+
+        output_filename = f"clip_{clip_id}.mp4"
+        output_path = settings.clip_storage_path / output_filename
+        if not output_path.is_absolute():
+            output_path = Path.cwd() / output_path
+
+        # Ensure clips directory exists
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+
+        # Resolve video path
+        video_path = Path(video.file_path)
+        if not video_path.is_absolute():
+            video_path = Path.cwd() / video.file_path
+
+        # Export synchronously with offset-adjusted timestamps
+        try:
+            await _export_clip_task(
+                clip_id=clip_id,
+                video_path=str(video_path),
+                output_path=str(output_path),
+                start_time=clip.start_time + time_offset,
+                end_time=clip.end_time + time_offset,
+                format="mp4",
+                resolution=None,
+                include_captions=False,
+                job_id=job.id,
+            )
+        except Exception as e:
+            logger.error(f"On-demand export failed for clip {clip_id}: {e}")
+            raise HTTPException(status_code=500, detail=f"Export failed: {e}")
+
+        # Update clip record
+        clip.export_path = str(output_path)
+        clip.exported = True
+        await session.commit()
+
+        file_path = output_path
+
     if not file_path.exists():
-        raise HTTPException(status_code=404, detail="Export file not found")
+        raise HTTPException(status_code=500, detail="Export completed but file not found")
 
     return FileResponse(
-        path=file_path,
+        path=str(file_path),
         filename=f"clip_{clip_id}{file_path.suffix}",
         media_type="video/mp4",
     )
+
+
