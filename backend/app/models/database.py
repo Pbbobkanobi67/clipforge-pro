@@ -304,8 +304,35 @@ class ClipSuggestion(Base):
     # Ranking
     rank = Column(Integer, nullable=True)
 
+    # Clip management
+    parent_clip_id = Column(GUID(), ForeignKey("clip_suggestions.id"), nullable=True)
+    version_label = Column(String(200), nullable=True)
+    is_manual = Column(Boolean, default=False)
+
     # Relationships
     analysis_job = relationship("AnalysisJob", back_populates="clips")
+    parent_clip = relationship("ClipSuggestion", remote_side="ClipSuggestion.id", foreign_keys=[parent_clip_id])
+    exports = relationship("ClipExport", back_populates="clip", cascade="all, delete-orphan")
+
+
+class ClipExport(Base):
+    """Historical record of each clip export."""
+
+    __tablename__ = "clip_exports"
+
+    id = Column(GUID(), primary_key=True, default=uuid.uuid4)
+    clip_id = Column(GUID(), ForeignKey("clip_suggestions.id"), nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    # Export details
+    export_path = Column(String(1000), nullable=False)
+    format = Column(String(10), default="mp4")
+    file_size_bytes = Column(Integer, nullable=True)
+    settings_json = Column(Text, default="{}")
+    label = Column(String(200), nullable=True)
+
+    # Relationships
+    clip = relationship("ClipSuggestion", back_populates="exports")
 
 
 class Hook(Base):
@@ -471,6 +498,7 @@ class TrackingMode(str, PyEnum):
     ACTION = "action"  # Follow main action
     CENTER = "center"  # Center crop
     MANUAL = "manual"  # User-defined keyframes
+    SPLIT = "split"  # Speaker + screen split layout
 
 
 class ReframeConfig(Base):
@@ -499,6 +527,10 @@ class ReframeConfig(Base):
     # Generated crop data from analysis
     # Format: {"frames": [{"time": 0.0, "x": 100, "y": 0, "confidence": 0.95}, ...]}
     crop_data = Column(JSON, default=dict)
+
+    # Split layout config (for tracking_mode=SPLIT)
+    # Format: {"layout_type": "screen_speaker", "pip_region": {...}, "split_ratio": 0.65, ...}
+    layout_config = Column(JSON, default=dict)
 
     # Processing status
     processed = Column(Boolean, default=False)

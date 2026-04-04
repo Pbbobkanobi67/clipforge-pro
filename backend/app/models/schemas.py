@@ -247,6 +247,51 @@ class ClipSuggestionResponse(BaseModel):
     exported: bool
     export_path: Optional[str] = None
     rank: Optional[int] = None
+    parent_clip_id: Optional[UUID] = None
+    version_label: Optional[str] = None
+    is_manual: bool = False
+
+
+class ClipUpdateRequest(BaseModel):
+    """Schema for editing a clip's boundaries, title, or label."""
+
+    start_time: Optional[float] = Field(None, ge=0)
+    end_time: Optional[float] = Field(None, ge=0)
+    title: Optional[str] = Field(None, max_length=500)
+    description: Optional[str] = None
+    version_label: Optional[str] = Field(None, max_length=200)
+
+
+class ClipDuplicateRequest(BaseModel):
+    """Schema for duplicating a clip."""
+
+    version_label: Optional[str] = Field(None, max_length=200)
+
+
+class ClipCreateRequest(BaseModel):
+    """Schema for manually creating a clip from a video."""
+
+    video_id: UUID
+    start_time: float = Field(..., ge=0)
+    end_time: float = Field(..., ge=0)
+    title: Optional[str] = Field(None, max_length=500)
+    description: Optional[str] = None
+    version_label: Optional[str] = Field(None, max_length=200)
+
+
+class ClipExportHistoryResponse(BaseModel):
+    """Schema for a single export history entry."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    clip_id: UUID
+    created_at: datetime
+    export_path: str
+    format: str = "mp4"
+    file_size_bytes: Optional[int] = None
+    settings_json: str = "{}"
+    label: Optional[str] = None
 
 
 class ClipExportRequest(BaseModel):
@@ -444,12 +489,21 @@ class ReframeKeyframe(BaseModel):
     height: int = Field(..., ge=1)
 
 
+class SplitLayoutConfig(BaseModel):
+    """Configuration for speaker + screen split layout."""
+
+    split_ratio: float = Field(default=0.65, ge=0.5, le=0.8, description="Content panel ratio (0.5-0.8)")
+    separator_color: str = Field(default="#333333", pattern=r"^#[0-9A-Fa-f]{6}$")
+    separator_height: int = Field(default=4, ge=0, le=20)
+
+
 class ReframeRequest(BaseModel):
     """Schema for generating reframe config."""
 
     aspect_ratio: str = Field(default="9:16", description="9:16, 1:1, 16:9, 4:3, 4:5")
-    tracking_mode: str = Field(default="speaker", description="speaker, action, center, manual")
+    tracking_mode: str = Field(default="speaker", description="speaker, action, center, manual, split")
     smooth_factor: float = Field(default=0.3, ge=0.0, le=1.0)
+    split_layout: Optional[SplitLayoutConfig] = None
 
 
 class ReframeUpdate(BaseModel):
@@ -477,6 +531,7 @@ class ReframeResponse(BaseModel):
     smooth_factor: float
     keyframes: list[dict] = Field(default_factory=list)
     crop_data: dict = Field(default_factory=dict)
+    layout_config: dict = Field(default_factory=dict)
     processed: bool
     export_path: Optional[str] = None
 
@@ -707,6 +762,11 @@ class EnhancedClipExportRequest(BaseModel):
     # Video transitions
     video_fade: bool = Field(default=False, description="Add fade-in/fade-out transitions")
 
+    # Split layout
+    split_layout: bool = Field(default=False, description="Apply speaker + screen split layout")
+    split_ratio: float = Field(default=0.65, ge=0.5, le=0.8, description="Content panel ratio for split layout")
+    separator_color: str = Field(default="#333333", description="Separator line color for split layout")
+
 
 class BatchExportRequest(BaseModel):
     """Schema for batch exporting multiple clips."""
@@ -723,6 +783,9 @@ class BatchExportRequest(BaseModel):
     auto_zoom: bool = Field(default=False)
     remove_silence: bool = Field(default=False)
     video_fade: bool = Field(default=False)
+    split_layout: bool = Field(default=False)
+    split_ratio: float = Field(default=0.65)
+    separator_color: str = Field(default="#333333")
 
 
 class BatchExportResponse(BaseModel):

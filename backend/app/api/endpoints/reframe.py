@@ -105,24 +105,48 @@ async def generate_reframe(
     # Get target dimensions
     target_width, target_height = ASPECT_DIMENSIONS.get(request.aspect_ratio, (1080, 1920))
 
-    # Analyze video for reframe
-    from app.services.reframe_service import get_reframe_service
+    # Branch: split layout mode
+    if tracking_mode == TrackingMode.SPLIT:
+        from app.services.split_layout_service import get_split_layout_service
 
-    reframe_service = get_reframe_service()
+        split_service = get_split_layout_service()
+        layout_analysis = await split_service.analyze_layout(
+            video_path=video.file_path,
+            start_time=clip.start_time,
+            end_time=clip.end_time,
+        )
 
-    # Analyze the clip portion of the video
-    crop_data = await reframe_service.analyze_video_for_reframe(
-        video_path=video.file_path,
-        aspect_ratio=request.aspect_ratio,
-        tracking_mode=request.tracking_mode,
-        sample_interval=0.5,
-    )
+        # Build layout config from analysis + user settings
+        split_cfg = request.split_layout or {}
+        if hasattr(split_cfg, "model_dump"):
+            split_cfg = split_cfg.model_dump()
+        layout_config = {
+            **layout_analysis,
+            "split_ratio": split_cfg.get("split_ratio", 0.65),
+            "separator_color": split_cfg.get("separator_color", "#333333"),
+            "separator_height": split_cfg.get("separator_height", 4),
+        }
 
-    # Filter keyframes to clip timerange
-    keyframes = [
-        kf for kf in crop_data.get("keyframes", [])
-        if clip.start_time <= kf["time"] <= clip.end_time
-    ]
+        crop_data = {}
+        keyframes = []
+    else:
+        # Standard reframe flow
+        from app.services.reframe_service import get_reframe_service
+
+        reframe_service = get_reframe_service()
+
+        crop_data = await reframe_service.analyze_video_for_reframe(
+            video_path=video.file_path,
+            aspect_ratio=request.aspect_ratio,
+            tracking_mode=request.tracking_mode,
+            sample_interval=0.5,
+        )
+
+        keyframes = [
+            kf for kf in crop_data.get("keyframes", [])
+            if clip.start_time <= kf["time"] <= clip.end_time
+        ]
+        layout_config = {}
 
     if existing:
         # Update existing config
@@ -133,6 +157,7 @@ async def generate_reframe(
         existing.smooth_factor = request.smooth_factor
         existing.keyframes = keyframes
         existing.crop_data = crop_data
+        existing.layout_config = layout_config
         existing.processed = False
         existing.export_path = None
 
@@ -153,6 +178,7 @@ async def generate_reframe(
             smooth_factor=request.smooth_factor,
             keyframes=keyframes,
             crop_data=crop_data,
+            layout_config=layout_config,
             processed=False,
         )
 
@@ -287,27 +313,46 @@ async def generate_reframe_preview(
     if not video:
         raise HTTPException(status_code=404, detail="Video not found")
 
-    # Generate preview
-    from app.services.reframe_service import get_reframe_service
-
-    reframe_service = get_reframe_service()
-
     preview_dir = settings.cache_path / "previews"
     preview_dir.mkdir(parents=True, exist_ok=True)
 
     preview_path = str(preview_dir / f"reframe_preview_{clip_id}_{uuid.uuid4().hex[:8]}.mp4")
     preview_duration = min(duration, clip.duration)
 
-    await reframe_service.generate_reframed_video(
-        video_path=video.file_path,
-        output_path=preview_path,
-        keyframes=config.keyframes or [],
-        target_width=config.target_width,
-        target_height=config.target_height,
-        smooth_factor=config.smooth_factor,
-        start_time=clip.start_time,
-        end_time=clip.start_time + preview_duration,
-    )
+    if config.tracking_mode == TrackingMode.SPLIT and config.layout_config:
+        # Split layout preview
+        from app.services.split_layout_service import get_split_layout_service
+
+        split_service = get_split_layout_service()
+        layout_cfg = config.layout_config or {}
+        await split_service.generate_split_video(
+            video_path=video.file_path,
+            output_path=preview_path,
+            layout_analysis=layout_cfg,
+            split_ratio=layout_cfg.get("split_ratio", 0.65),
+            separator_height=layout_cfg.get("separator_height", 4),
+            separator_color=layout_cfg.get("separator_color", "#333333"),
+            target_width=config.target_width,
+            target_height=config.target_height,
+            start_time=clip.start_time,
+            end_time=clip.start_time + preview_duration,
+        )
+    else:
+        # Standard reframe preview
+        from app.services.reframe_service import get_reframe_service
+
+        reframe_service = get_reframe_service()
+
+        await reframe_service.generate_reframed_video(
+            video_path=video.file_path,
+            output_path=preview_path,
+            keyframes=config.keyframes or [],
+            target_width=config.target_width,
+            target_height=config.target_height,
+            smooth_factor=config.smooth_factor,
+            start_time=clip.start_time,
+            end_time=clip.start_time + preview_duration,
+        )
 
     logger.info(f"Generated reframe preview: {preview_path}")
 
@@ -315,8 +360,9 @@ async def generate_reframe_preview(
         "status": "completed",
         "preview_path": preview_path,
         "duration": preview_duration,
-        "aspect_ratio": config.aspect_ratio.value,
+        "aspect_ratio": config.aspect_ratio.value if hasattr(config.aspect_ratio, 'value') else config.aspect_ratio,
         "dimensions": f"{config.target_width}x{config.target_height}",
+        "layout_config": config.layout_config or {},
     }
 
 
@@ -369,23 +415,42 @@ async def export_reframed_clip(
     if not video:
         raise HTTPException(status_code=404, detail="Video not found")
 
-    # Export reframed clip
-    from app.services.reframe_service import get_reframe_service
-
-    reframe_service = get_reframe_service()
-
     export_path = str(settings.clip_storage_path / f"reframed_{clip_id}.mp4")
 
-    await reframe_service.generate_reframed_video(
-        video_path=video.file_path,
-        output_path=export_path,
-        keyframes=config.keyframes or [],
-        target_width=config.target_width,
-        target_height=config.target_height,
-        smooth_factor=config.smooth_factor,
-        start_time=clip.start_time,
-        end_time=clip.end_time,
-    )
+    if config.tracking_mode == TrackingMode.SPLIT and config.layout_config:
+        # Split layout export
+        from app.services.split_layout_service import get_split_layout_service
+
+        split_service = get_split_layout_service()
+        layout_cfg = config.layout_config or {}
+        await split_service.generate_split_video(
+            video_path=video.file_path,
+            output_path=export_path,
+            layout_analysis=layout_cfg,
+            split_ratio=layout_cfg.get("split_ratio", 0.65),
+            separator_height=layout_cfg.get("separator_height", 4),
+            separator_color=layout_cfg.get("separator_color", "#333333"),
+            target_width=config.target_width,
+            target_height=config.target_height,
+            start_time=clip.start_time,
+            end_time=clip.end_time,
+        )
+    else:
+        # Standard reframe export
+        from app.services.reframe_service import get_reframe_service
+
+        reframe_service = get_reframe_service()
+
+        await reframe_service.generate_reframed_video(
+            video_path=video.file_path,
+            output_path=export_path,
+            keyframes=config.keyframes or [],
+            target_width=config.target_width,
+            target_height=config.target_height,
+            smooth_factor=config.smooth_factor,
+            start_time=clip.start_time,
+            end_time=clip.end_time,
+        )
 
     # Update config
     config.processed = True
@@ -397,8 +462,9 @@ async def export_reframed_clip(
     return {
         "status": "completed",
         "export_path": export_path,
-        "aspect_ratio": config.aspect_ratio.value,
+        "aspect_ratio": config.aspect_ratio.value if hasattr(config.aspect_ratio, 'value') else config.aspect_ratio,
         "dimensions": f"{config.target_width}x{config.target_height}",
+        "layout_config": config.layout_config or {},
     }
 
 

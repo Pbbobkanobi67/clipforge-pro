@@ -304,6 +304,7 @@
             { value: 'action', label: 'Action Focus', description: 'Follow main action in scene' },
             { value: 'center', label: 'Center Crop', description: 'Always crop from center' },
             { value: 'manual', label: 'Manual', description: 'Set keyframes manually' },
+            { value: 'split', label: 'Speaker + Screen', description: 'Split: screen top, speaker bottom' },
         ];
 
         // API fetch helper
@@ -2212,6 +2213,10 @@
             const [progress, setProgress] = useState(0);
             const [error, setError] = useState(null);
             const [previewUrl, setPreviewUrl] = useState(null);
+            const [splitRatio, setSplitRatio] = useState(0.65);
+            const [separatorColor, setSeparatorColor] = useState('#333333');
+            const isSplitMode = trackingMode === 'split';
+            const effectiveAspectRatio = isSplitMode ? '9:16' : aspectRatio;
 
             const handleReframe = async () => {
                 setProcessing(true);
@@ -2220,12 +2225,20 @@
 
                 try {
                     // Start reframe analysis
+                    const body = {
+                        aspect_ratio: effectiveAspectRatio,
+                        tracking_mode: trackingMode,
+                    };
+                    if (isSplitMode) {
+                        body.split_layout = {
+                            split_ratio: splitRatio,
+                            separator_color: separatorColor,
+                            separator_height: 4,
+                        };
+                    }
                     const result = await apiFetch(`/reframe/${clipId}`, {
                         method: 'POST',
-                        body: JSON.stringify({
-                            aspect_ratio: aspectRatio,
-                            tracking_mode: trackingMode,
-                        }),
+                        body: JSON.stringify(body),
                     });
 
                     // Poll for completion
@@ -2284,9 +2297,9 @@
                     )}
 
                     {/* Aspect Ratio Selection */}
-                    <div style={{ marginBottom: '16px' }}>
+                    <div style={{ marginBottom: '16px', opacity: isSplitMode ? 0.5 : 1, pointerEvents: isSplitMode ? 'none' : 'auto' }}>
                         <label style={{ display: 'block', fontSize: '12px', color: 'var(--text-muted)', marginBottom: '8px' }}>
-                            Target Aspect Ratio
+                            Target Aspect Ratio {isSplitMode && '(locked to 9:16 for split mode)'}
                         </label>
                         <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
                             {ASPECT_RATIOS.map(ratio => (
@@ -2295,15 +2308,15 @@
                                     onClick={() => setAspectRatio(ratio.value)}
                                     style={{
                                         padding: '12px 16px',
-                                        background: aspectRatio === ratio.value ? 'rgba(59,130,246,0.15)' : 'var(--bg-elevated)',
-                                        border: aspectRatio === ratio.value ? '1px solid var(--accent-blue)' : '1px solid var(--border)',
+                                        background: (isSplitMode ? '9:16' : aspectRatio) === ratio.value ? 'rgba(59,130,246,0.15)' : 'var(--bg-elevated)',
+                                        border: (isSplitMode ? '9:16' : aspectRatio) === ratio.value ? '1px solid var(--accent-blue)' : '1px solid var(--border)',
                                         borderRadius: '10px',
-                                        cursor: 'pointer',
+                                        cursor: isSplitMode ? 'default' : 'pointer',
                                         textAlign: 'center',
                                         minWidth: '90px',
                                     }}
                                 >
-                                    <div style={{ color: aspectRatio === ratio.value ? 'var(--accent-blue)' : 'var(--text-primary)', fontWeight: '600', marginBottom: '4px' }}>
+                                    <div style={{ color: (isSplitMode ? '9:16' : aspectRatio) === ratio.value ? 'var(--accent-blue)' : 'var(--text-primary)', fontWeight: '600', marginBottom: '4px' }}>
                                         {ratio.label}
                                     </div>
                                     <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
@@ -2344,6 +2357,40 @@
                         </div>
                     </div>
 
+                    {/* Split Mode Controls */}
+                    {isSplitMode && (
+                        <div style={{ marginBottom: '16px', padding: '14px', background: 'var(--bg-elevated)', borderRadius: '10px', border: '1px solid var(--border)' }}>
+                            <label style={{ display: 'block', fontSize: '12px', color: 'var(--text-muted)', marginBottom: '8px' }}>
+                                Split Ratio: {Math.round(splitRatio * 100)}% content / {Math.round((1 - splitRatio) * 100)}% speaker
+                            </label>
+                            <input
+                                type="range"
+                                min="0.5"
+                                max="0.8"
+                                step="0.05"
+                                value={splitRatio}
+                                onChange={e => setSplitRatio(parseFloat(e.target.value))}
+                                style={{ width: '100%', accentColor: 'var(--accent-purple)' }}
+                            />
+                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px' }}>
+                                <span>50/50</span>
+                                <span>80/20</span>
+                            </div>
+                            <label style={{ display: 'block', fontSize: '12px', color: 'var(--text-muted)', marginBottom: '6px', marginTop: '12px' }}>
+                                Separator Color
+                            </label>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                <input
+                                    type="color"
+                                    value={separatorColor}
+                                    onChange={e => setSeparatorColor(e.target.value)}
+                                    style={{ width: '36px', height: '28px', border: '1px solid var(--border)', borderRadius: '6px', cursor: 'pointer', background: 'none', padding: '2px' }}
+                                />
+                                <span style={{ fontSize: '12px', color: 'var(--text-secondary)', fontFamily: 'monospace' }}>{separatorColor}</span>
+                            </div>
+                        </div>
+                    )}
+
                     {/* Progress */}
                     {processing && (
                         <div style={{ marginBottom: '16px' }}>
@@ -2378,7 +2425,7 @@
                         }}
                     >
                         {processing ? <Icons.Loader /> : <Icons.Crop />}
-                        {processing ? 'Reframing...' : `Reframe to ${aspectRatio}`}
+                        {processing ? (isSplitMode ? 'Generating Split...' : 'Reframing...') : (isSplitMode ? 'Generate Split Layout' : `Reframe to ${effectiveAspectRatio}`)}
                     </button>
                 </div>
             );
@@ -2584,6 +2631,9 @@
                 auto_zoom: false,
                 remove_silence: false,
                 video_fade: false,
+                split_layout: false,
+                split_ratio: 0.65,
+                separator_color: '#333333',
             });
 
             useEffect(() => {
@@ -2797,6 +2847,41 @@
                                     <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '4px', marginLeft: '28px' }}>
                                         Smooth fade-in/fade-out for cinematic feel
                                     </div>
+                                </div>
+
+                                {/* Split Layout */}
+                                <div style={{ marginBottom: '20px', padding: '16px', background: 'var(--bg-elevated)', borderRadius: '12px' }}>
+                                    <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '14px' }}>
+                                        <input type="checkbox" checked={exportOptions.split_layout}
+                                            onChange={e => setExportOptions({ ...exportOptions, split_layout: e.target.checked })} />
+                                        <Icons.Crop />
+                                        <span style={{ fontWeight: '500' }}>Speaker + Screen Split</span>
+                                    </label>
+                                    <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '4px', marginLeft: '28px' }}>
+                                        Stack screen content on top, speaker on bottom (9:16)
+                                    </div>
+                                    {exportOptions.split_layout && (
+                                        <div style={{ marginTop: '12px', marginLeft: '28px' }}>
+                                            <label style={{ display: 'block', fontSize: '12px', color: 'var(--text-muted)', marginBottom: '6px' }}>
+                                                Split Ratio: {Math.round(exportOptions.split_ratio * 100)}% / {Math.round((1 - exportOptions.split_ratio) * 100)}%
+                                            </label>
+                                            <input
+                                                type="range" min="0.5" max="0.8" step="0.05"
+                                                value={exportOptions.split_ratio}
+                                                onChange={e => setExportOptions({ ...exportOptions, split_ratio: parseFloat(e.target.value) })}
+                                                style={{ width: '100%', accentColor: 'var(--accent-purple)' }}
+                                            />
+                                            <label style={{ display: 'block', fontSize: '12px', color: 'var(--text-muted)', marginBottom: '4px', marginTop: '8px' }}>
+                                                Separator Color
+                                            </label>
+                                            <input
+                                                type="color"
+                                                value={exportOptions.separator_color}
+                                                onChange={e => setExportOptions({ ...exportOptions, separator_color: e.target.value })}
+                                                style={{ width: '36px', height: '28px', border: '1px solid var(--border)', borderRadius: '6px', cursor: 'pointer', background: 'none', padding: '2px' }}
+                                            />
+                                        </div>
+                                    )}
                                 </div>
 
                                 {/* Branding */}
@@ -3341,6 +3426,12 @@
             const [batchExporting, setBatchExporting] = useState(false);
             const [batchProgress, setBatchProgress] = useState(null);
             const [showThumbnails, setShowThumbnails] = useState(null);
+            const [editingClip, setEditingClip] = useState(null);
+            const [editForm, setEditForm] = useState({});
+            const [showExportHistory, setShowExportHistory] = useState(null);
+            const [exportHistory, setExportHistory] = useState([]);
+            const [showNewClipForm, setShowNewClipForm] = useState(false);
+            const [newClipForm, setNewClipForm] = useState({ start_time: 0, end_time: 30, title: '' });
             const [videoMeta, setVideoMeta] = useState(null);
             const [clipStartTime, setClipStartTime] = useState(0);
             const [clipEndTime, setClipEndTime] = useState(null);
@@ -3669,6 +3760,90 @@
                     setError(err.message);
                 } finally {
                     setIsLoading(false);
+                }
+            };
+
+            // --- Clip Management Functions ---
+
+            const updateClip = async (clipId, data) => {
+                try {
+                    const res = await apiFetch(`/clips/manage/${clipId}`, {
+                        method: 'PUT',
+                        body: JSON.stringify(data),
+                    });
+                    if (results && results.clips) {
+                        setResults({
+                            ...results,
+                            clips: results.clips.map(c => c.id === clipId ? { ...c, ...res } : c)
+                        });
+                    }
+                    setEditingClip(null);
+                } catch (err) {
+                    setError(err.message);
+                }
+            };
+
+            const duplicateClip = async (clipId, versionLabel) => {
+                try {
+                    const res = await apiFetch(`/clips/manage/${clipId}/duplicate`, {
+                        method: 'POST',
+                        body: JSON.stringify({ version_label: versionLabel || null }),
+                    });
+                    if (results && results.clips) {
+                        const idx = results.clips.findIndex(c => c.id === clipId);
+                        const newClips = [...results.clips];
+                        newClips.splice(idx + 1, 0, res);
+                        setResults({ ...results, clips: newClips });
+                    }
+                } catch (err) {
+                    setError(err.message);
+                }
+            };
+
+            const deleteClip = async (clipId) => {
+                if (!confirm('Delete this clip? This cannot be undone.')) return;
+                try {
+                    await apiFetch(`/clips/manage/${clipId}`, { method: 'DELETE' });
+                    if (results && results.clips) {
+                        setResults({
+                            ...results,
+                            clips: results.clips.filter(c => c.id !== clipId)
+                        });
+                    }
+                } catch (err) {
+                    setError(err.message);
+                }
+            };
+
+            const createManualClip = async () => {
+                if (!videoId) return;
+                try {
+                    const res = await apiFetch('/clips/create', {
+                        method: 'POST',
+                        body: JSON.stringify({
+                            video_id: videoId,
+                            start_time: parseFloat(newClipForm.start_time) || 0,
+                            end_time: parseFloat(newClipForm.end_time) || 30,
+                            title: newClipForm.title || undefined,
+                        }),
+                    });
+                    if (results && results.clips) {
+                        setResults({ ...results, clips: [...results.clips, res] });
+                    }
+                    setShowNewClipForm(false);
+                    setNewClipForm({ start_time: 0, end_time: 30, title: '' });
+                } catch (err) {
+                    setError(err.message);
+                }
+            };
+
+            const fetchExportHistory = async (clipId) => {
+                try {
+                    const res = await apiFetch(`/clips/manage/${clipId}/exports`);
+                    setExportHistory(res);
+                    setShowExportHistory(clipId);
+                } catch (err) {
+                    setError(err.message);
                 }
             };
 
@@ -4528,26 +4703,85 @@
                                             <Icons.TrendingUp />
                                             Suggested Viral Clips
                                         </h3>
-                                        <button
-                                            onClick={() => { setBatchExporting(true); batchExportAll(); }}
-                                            style={{
-                                                padding: '8px 16px',
-                                                background: 'linear-gradient(135deg, var(--accent-purple) 0%, var(--accent-blue) 100%)',
-                                                border: 'none',
-                                                borderRadius: '8px',
-                                                color: 'white',
-                                                fontSize: '13px',
-                                                fontWeight: '500',
-                                                cursor: 'pointer',
-                                                display: 'flex',
-                                                alignItems: 'center',
-                                                gap: '6px'
-                                            }}
-                                        >
-                                            <Icons.Download />
-                                            {batchExporting ? `Exporting...` : `Export All (${results.clips.length})`}
-                                        </button>
+                                        <div style={{ display: 'flex', gap: '8px' }}>
+                                            {videoId && (
+                                                <button
+                                                    onClick={() => setShowNewClipForm(!showNewClipForm)}
+                                                    style={{
+                                                        padding: '8px 16px',
+                                                        background: 'var(--bg-elevated)',
+                                                        border: '1px solid var(--accent-green)',
+                                                        borderRadius: '8px',
+                                                        color: 'var(--accent-green)',
+                                                        fontSize: '13px',
+                                                        fontWeight: '500',
+                                                        cursor: 'pointer',
+                                                        display: 'flex',
+                                                        alignItems: 'center',
+                                                        gap: '6px'
+                                                    }}
+                                                >
+                                                    <Icons.Plus />
+                                                    New Clip
+                                                </button>
+                                            )}
+                                            <button
+                                                onClick={() => { setBatchExporting(true); batchExportAll(); }}
+                                                style={{
+                                                    padding: '8px 16px',
+                                                    background: 'linear-gradient(135deg, var(--accent-purple) 0%, var(--accent-blue) 100%)',
+                                                    border: 'none',
+                                                    borderRadius: '8px',
+                                                    color: 'white',
+                                                    fontSize: '13px',
+                                                    fontWeight: '500',
+                                                    cursor: 'pointer',
+                                                    display: 'flex',
+                                                    alignItems: 'center',
+                                                    gap: '6px'
+                                                }}
+                                            >
+                                                <Icons.Download />
+                                                {batchExporting ? `Exporting...` : `Export All (${results.clips.length})`}
+                                            </button>
+                                        </div>
                                     </div>
+
+                                    {/* New Clip Form */}
+                                    {showNewClipForm && (
+                                        <div style={{ marginBottom: '16px', padding: '16px', background: 'var(--bg-elevated)', borderRadius: '12px', border: '1px solid var(--accent-green)' }}>
+                                            <h4 style={{ fontSize: '14px', fontWeight: '600', marginBottom: '12px' }}>Create Manual Clip</h4>
+                                            <div style={{ display: 'flex', gap: '12px', alignItems: 'end', flexWrap: 'wrap' }}>
+                                                <div>
+                                                    <label style={{ fontSize: '11px', color: 'var(--text-muted)', display: 'block', marginBottom: '4px' }}>Start (sec)</label>
+                                                    <input type="number" step="0.1" min="0" value={newClipForm.start_time}
+                                                        onChange={e => setNewClipForm({ ...newClipForm, start_time: e.target.value })}
+                                                        style={{ width: '80px', padding: '8px', background: 'var(--bg-base)', border: '1px solid var(--border)', borderRadius: '6px', color: 'var(--text-primary)', fontSize: '13px' }}
+                                                    />
+                                                </div>
+                                                <div>
+                                                    <label style={{ fontSize: '11px', color: 'var(--text-muted)', display: 'block', marginBottom: '4px' }}>End (sec)</label>
+                                                    <input type="number" step="0.1" min="0" value={newClipForm.end_time}
+                                                        onChange={e => setNewClipForm({ ...newClipForm, end_time: e.target.value })}
+                                                        style={{ width: '80px', padding: '8px', background: 'var(--bg-base)', border: '1px solid var(--border)', borderRadius: '6px', color: 'var(--text-primary)', fontSize: '13px' }}
+                                                    />
+                                                </div>
+                                                <div style={{ flex: 1 }}>
+                                                    <label style={{ fontSize: '11px', color: 'var(--text-muted)', display: 'block', marginBottom: '4px' }}>Title (optional)</label>
+                                                    <input type="text" value={newClipForm.title} placeholder="My custom clip"
+                                                        onChange={e => setNewClipForm({ ...newClipForm, title: e.target.value })}
+                                                        style={{ width: '100%', padding: '8px', background: 'var(--bg-base)', border: '1px solid var(--border)', borderRadius: '6px', color: 'var(--text-primary)', fontSize: '13px' }}
+                                                    />
+                                                </div>
+                                                <button onClick={createManualClip} style={{
+                                                    padding: '8px 16px', background: 'var(--accent-green)', border: 'none', borderRadius: '8px', color: 'white', fontSize: '13px', fontWeight: '500', cursor: 'pointer'
+                                                }}>Create</button>
+                                                <button onClick={() => setShowNewClipForm(false)} style={{
+                                                    padding: '8px 16px', background: 'transparent', border: '1px solid var(--border)', borderRadius: '8px', color: 'var(--text-secondary)', fontSize: '13px', cursor: 'pointer'
+                                                }}>Cancel</button>
+                                            </div>
+                                        </div>
+                                    )}
 
                                     {batchProgress && (
                                         <div style={{ marginBottom: '12px', padding: '12px', background: 'var(--bg-elevated)', borderRadius: '8px', border: '1px solid var(--border)' }}>
@@ -4574,7 +4808,7 @@
                                             }}>
                                                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start', marginBottom: '12px' }}>
                                                     <div>
-                                                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
+                                                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px', flexWrap: 'wrap' }}>
                                                             <span style={{
                                                                 width: '24px',
                                                                 height: '24px',
@@ -4591,7 +4825,16 @@
                                                             <h4 style={{ fontSize: '15px', fontWeight: '600' }}>
                                                                 {clip.title || `Clip ${index + 1}`}
                                                             </h4>
+                                                            {clip.is_manual && (
+                                                                <span style={{ padding: '2px 8px', background: 'var(--accent-green)', borderRadius: '4px', fontSize: '10px', fontWeight: '600', color: '#000' }}>Manual</span>
+                                                            )}
+                                                            {clip.parent_clip_id && (
+                                                                <span style={{ padding: '2px 8px', background: 'var(--accent-blue)', borderRadius: '4px', fontSize: '10px', fontWeight: '600', color: '#fff' }}>Copy</span>
+                                                            )}
                                                         </div>
+                                                        {clip.version_label && (
+                                                            <p style={{ fontSize: '11px', color: 'var(--accent-purple)', marginBottom: '2px' }}>{clip.version_label}</p>
+                                                        )}
                                                         <p style={{ fontSize: '13px', color: 'var(--text-muted)' }}>
                                                             {formatDuration(clip.start_time)} - {formatDuration(clip.end_time)} ({formatDuration(clip.duration)})
                                                         </p>
@@ -4740,7 +4983,117 @@
                                                             Open File
                                                         </button>
                                                     )}
+                                                    <button
+                                                        onClick={() => { setEditingClip(clip.id); setEditForm({ start_time: clip.start_time, end_time: clip.end_time, title: clip.title || '', version_label: clip.version_label || '' }); }}
+                                                        style={{ padding: '10px 16px', background: 'var(--bg-elevated)', border: '1px solid var(--border)', borderRadius: '8px', color: 'var(--text-secondary)', fontSize: '13px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px' }}
+                                                    >
+                                                        <Icons.Edit />
+                                                        Edit
+                                                    </button>
+                                                    <button
+                                                        onClick={() => duplicateClip(clip.id)}
+                                                        style={{ padding: '10px 16px', background: 'var(--bg-elevated)', border: '1px solid var(--border)', borderRadius: '8px', color: 'var(--text-secondary)', fontSize: '13px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px' }}
+                                                    >
+                                                        <Icons.Copy />
+                                                        Duplicate
+                                                    </button>
+                                                    <button
+                                                        onClick={() => fetchExportHistory(clip.id)}
+                                                        style={{ padding: '10px 16px', background: 'var(--bg-elevated)', border: '1px solid var(--border)', borderRadius: '8px', color: 'var(--text-secondary)', fontSize: '13px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px' }}
+                                                    >
+                                                        <Icons.Clock />
+                                                        History
+                                                    </button>
+                                                    <button
+                                                        onClick={() => deleteClip(clip.id)}
+                                                        style={{ padding: '10px 16px', background: 'transparent', border: '1px solid #ff4444', borderRadius: '8px', color: '#ff4444', fontSize: '13px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px' }}
+                                                    >
+                                                        <Icons.Trash />
+                                                        Delete
+                                                    </button>
                                                 </div>
+
+                                                {/* Inline Edit Panel */}
+                                                {editingClip === clip.id && (
+                                                    <div style={{ marginTop: '12px', padding: '16px', background: 'var(--bg-base)', borderRadius: '8px', border: '1px solid var(--accent-purple)' }}>
+                                                        <h4 style={{ fontSize: '13px', fontWeight: '600', marginBottom: '12px' }}>Edit Clip</h4>
+                                                        <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', alignItems: 'end' }}>
+                                                            <div>
+                                                                <label style={{ fontSize: '11px', color: 'var(--text-muted)', display: 'block', marginBottom: '4px' }}>Start (sec)</label>
+                                                                <input type="number" step="0.1" min="0" value={editForm.start_time}
+                                                                    onChange={e => setEditForm({ ...editForm, start_time: parseFloat(e.target.value) || 0 })}
+                                                                    style={{ width: '80px', padding: '8px', background: 'var(--bg-elevated)', border: '1px solid var(--border)', borderRadius: '6px', color: 'var(--text-primary)', fontSize: '13px' }}
+                                                                />
+                                                            </div>
+                                                            <div>
+                                                                <label style={{ fontSize: '11px', color: 'var(--text-muted)', display: 'block', marginBottom: '4px' }}>End (sec)</label>
+                                                                <input type="number" step="0.1" min="0" value={editForm.end_time}
+                                                                    onChange={e => setEditForm({ ...editForm, end_time: parseFloat(e.target.value) || 0 })}
+                                                                    style={{ width: '80px', padding: '8px', background: 'var(--bg-elevated)', border: '1px solid var(--border)', borderRadius: '6px', color: 'var(--text-primary)', fontSize: '13px' }}
+                                                                />
+                                                            </div>
+                                                            <div style={{ flex: 1, minWidth: '120px' }}>
+                                                                <label style={{ fontSize: '11px', color: 'var(--text-muted)', display: 'block', marginBottom: '4px' }}>Title</label>
+                                                                <input type="text" value={editForm.title}
+                                                                    onChange={e => setEditForm({ ...editForm, title: e.target.value })}
+                                                                    style={{ width: '100%', padding: '8px', background: 'var(--bg-elevated)', border: '1px solid var(--border)', borderRadius: '6px', color: 'var(--text-primary)', fontSize: '13px' }}
+                                                                />
+                                                            </div>
+                                                            <div style={{ minWidth: '120px' }}>
+                                                                <label style={{ fontSize: '11px', color: 'var(--text-muted)', display: 'block', marginBottom: '4px' }}>Version Label</label>
+                                                                <input type="text" value={editForm.version_label} placeholder="e.g. Short version"
+                                                                    onChange={e => setEditForm({ ...editForm, version_label: e.target.value })}
+                                                                    style={{ width: '100%', padding: '8px', background: 'var(--bg-elevated)', border: '1px solid var(--border)', borderRadius: '6px', color: 'var(--text-primary)', fontSize: '13px' }}
+                                                                />
+                                                            </div>
+                                                            <button onClick={() => updateClip(clip.id, editForm)} style={{
+                                                                padding: '8px 16px', background: 'var(--accent-purple)', border: 'none', borderRadius: '8px', color: 'white', fontSize: '13px', fontWeight: '500', cursor: 'pointer'
+                                                            }}>Save</button>
+                                                            <button onClick={() => setEditingClip(null)} style={{
+                                                                padding: '8px 16px', background: 'transparent', border: '1px solid var(--border)', borderRadius: '8px', color: 'var(--text-secondary)', fontSize: '13px', cursor: 'pointer'
+                                                            }}>Cancel</button>
+                                                        </div>
+                                                    </div>
+                                                )}
+
+                                                {/* Export History Panel */}
+                                                {showExportHistory === clip.id && (
+                                                    <div style={{ marginTop: '12px', padding: '16px', background: 'var(--bg-base)', borderRadius: '8px', border: '1px solid var(--border)' }}>
+                                                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+                                                            <h4 style={{ fontSize: '13px', fontWeight: '600' }}>Export History</h4>
+                                                            <button onClick={() => setShowExportHistory(null)} style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', fontSize: '13px' }}>Close</button>
+                                                        </div>
+                                                        {exportHistory.length === 0 ? (
+                                                            <p style={{ fontSize: '13px', color: 'var(--text-muted)' }}>No exports yet.</p>
+                                                        ) : (
+                                                            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                                                                {exportHistory.map(exp => {
+                                                                    let settings = {};
+                                                                    try { settings = JSON.parse(exp.settings_json || '{}'); } catch(e) {}
+                                                                    const settingsSummary = [
+                                                                        settings.include_captions && 'Captions',
+                                                                        settings.aspect_ratio,
+                                                                        settings.auto_zoom && 'Zoom',
+                                                                        settings.video_fade && 'Fade',
+                                                                        settings.remove_silence && 'Silence-rm',
+                                                                    ].filter(Boolean).join(', ') || 'Basic';
+                                                                    return (
+                                                                        <div key={exp.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 12px', background: 'var(--bg-elevated)', borderRadius: '6px' }}>
+                                                                            <div>
+                                                                                <div style={{ fontSize: '12px', color: 'var(--text-primary)' }}>{new Date(exp.created_at).toLocaleString()}</div>
+                                                                                <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>{settingsSummary} {exp.file_size_bytes ? `| ${(exp.file_size_bytes / 1024 / 1024).toFixed(1)} MB` : ''}</div>
+                                                                            </div>
+                                                                            <button
+                                                                                onClick={() => window.open(`${apiBase}/clips/manage/${clip.id}/exports/${exp.id}/download`, '_blank')}
+                                                                                style={{ padding: '4px 12px', background: 'var(--accent-blue)', border: 'none', borderRadius: '6px', color: 'white', fontSize: '12px', cursor: 'pointer' }}
+                                                                            >Download</button>
+                                                                        </div>
+                                                                    );
+                                                                })}
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                )}
 
                                                 {/* Reframe Panel */}
                                                 {showReframe === clip.id && (

@@ -11,8 +11,12 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
-from app.models.database import AnalysisJob, ClipSuggestion, Video, CaptionStyle, BrandTemplate, get_async_session
-from app.models.schemas import ClipExportRequest, ClipSuggestionResponse, EnhancedClipExportRequest, BatchExportRequest, BatchExportResponse
+from app.models.database import AnalysisJob, ClipSuggestion, ClipExport, Video, CaptionStyle, BrandTemplate, get_async_session
+from app.models.schemas import (
+    ClipExportRequest, ClipSuggestionResponse, EnhancedClipExportRequest,
+    BatchExportRequest, BatchExportResponse,
+    ClipUpdateRequest, ClipDuplicateRequest, ClipCreateRequest, ClipExportHistoryResponse,
+)
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -46,6 +50,9 @@ async def batch_export_clips(
                 auto_zoom=request.auto_zoom,
                 remove_silence=request.remove_silence,
                 video_fade=request.video_fade,
+                split_layout=request.split_layout,
+                split_ratio=request.split_ratio,
+                separator_color=request.separator_color,
             )
 
             result = await export_clip_enhanced(
@@ -73,6 +80,210 @@ async def batch_export_clips(
         succeeded=succeeded,
         failed=failed,
         results=results,
+    )
+
+
+@router.post("/create", response_model=ClipSuggestionResponse)
+async def create_clip(
+    request: ClipCreateRequest,
+    session: AsyncSession = Depends(get_async_session),
+):
+    """Manually create a clip from a video with specified time boundaries."""
+    if request.end_time <= request.start_time:
+        raise HTTPException(status_code=400, detail="end_time must be greater than start_time")
+
+    # Find latest analysis job for this video
+    job_result = await session.execute(
+        select(AnalysisJob)
+        .filter(AnalysisJob.video_id == request.video_id)
+        .order_by(AnalysisJob.created_at.desc())
+        .limit(1)
+    )
+    job = job_result.scalar_one_or_none()
+
+    if not job:
+        raise HTTPException(status_code=404, detail="No analysis job found for this video. Analyze the video first.")
+
+    clip = ClipSuggestion(
+        id=uuid.uuid4(),
+        analysis_job_id=job.id,
+        start_time=request.start_time,
+        end_time=request.end_time,
+        duration=request.end_time - request.start_time,
+        title=request.title or f"Manual clip {request.start_time:.1f}s-{request.end_time:.1f}s",
+        description=request.description,
+        virality_score=0,
+        emotional_resonance=0,
+        shareability=0,
+        uniqueness=0,
+        hook_strength=0,
+        production_quality=0,
+        is_manual=True,
+        version_label=request.version_label,
+    )
+    session.add(clip)
+    await session.commit()
+    await session.refresh(clip)
+    return ClipSuggestionResponse.model_validate(clip)
+
+
+@router.put("/manage/{clip_id}", response_model=ClipSuggestionResponse)
+async def update_clip(
+    clip_id: uuid.UUID,
+    request: ClipUpdateRequest,
+    session: AsyncSession = Depends(get_async_session),
+):
+    """Edit a clip's boundaries, title, description, or version label."""
+    result = await session.execute(select(ClipSuggestion).filter(ClipSuggestion.id == clip_id))
+    clip = result.scalar_one_or_none()
+    if not clip:
+        raise HTTPException(status_code=404, detail="Clip not found")
+
+    boundaries_changed = False
+    if request.start_time is not None:
+        clip.start_time = request.start_time
+        boundaries_changed = True
+    if request.end_time is not None:
+        clip.end_time = request.end_time
+        boundaries_changed = True
+    if request.title is not None:
+        clip.title = request.title
+    if request.description is not None:
+        clip.description = request.description
+    if request.version_label is not None:
+        clip.version_label = request.version_label
+
+    if boundaries_changed:
+        clip.duration = clip.end_time - clip.start_time
+        if clip.duration <= 0:
+            raise HTTPException(status_code=400, detail="end_time must be greater than start_time")
+        clip.exported = False
+        clip.export_path = None
+
+    await session.commit()
+    await session.refresh(clip)
+    return ClipSuggestionResponse.model_validate(clip)
+
+
+@router.post("/manage/{clip_id}/duplicate", response_model=ClipSuggestionResponse)
+async def duplicate_clip(
+    clip_id: uuid.UUID,
+    request: ClipDuplicateRequest = ClipDuplicateRequest(),
+    session: AsyncSession = Depends(get_async_session),
+):
+    """Duplicate a clip for comparison with different settings."""
+    result = await session.execute(select(ClipSuggestion).filter(ClipSuggestion.id == clip_id))
+    original = result.scalar_one_or_none()
+    if not original:
+        raise HTTPException(status_code=404, detail="Clip not found")
+
+    copy = ClipSuggestion(
+        id=uuid.uuid4(),
+        analysis_job_id=original.analysis_job_id,
+        start_time=original.start_time,
+        end_time=original.end_time,
+        duration=original.duration,
+        title=f"{original.title or 'Clip'} (copy)",
+        description=original.description,
+        transcript_excerpt=original.transcript_excerpt,
+        virality_score=original.virality_score,
+        emotional_resonance=original.emotional_resonance,
+        shareability=original.shareability,
+        uniqueness=original.uniqueness,
+        hook_strength=original.hook_strength,
+        production_quality=original.production_quality,
+        rank=None,
+        exported=False,
+        export_path=None,
+        parent_clip_id=clip_id,
+        version_label=request.version_label,
+        is_manual=original.is_manual,
+    )
+    session.add(copy)
+    await session.commit()
+    await session.refresh(copy)
+    return ClipSuggestionResponse.model_validate(copy)
+
+
+@router.delete("/manage/{clip_id}")
+async def delete_clip(
+    clip_id: uuid.UUID,
+    delete_files: bool = Query(False, description="Also delete export files from disk"),
+    session: AsyncSession = Depends(get_async_session),
+):
+    """Delete a clip and its export history."""
+    result = await session.execute(select(ClipSuggestion).filter(ClipSuggestion.id == clip_id))
+    clip = result.scalar_one_or_none()
+    if not clip:
+        raise HTTPException(status_code=404, detail="Clip not found")
+
+    if delete_files:
+        # Delete export files from disk
+        exports_result = await session.execute(
+            select(ClipExport).filter(ClipExport.clip_id == clip_id)
+        )
+        for export in exports_result.scalars().all():
+            try:
+                Path(export.export_path).unlink(missing_ok=True)
+            except Exception:
+                pass
+        if clip.export_path:
+            try:
+                Path(clip.export_path).unlink(missing_ok=True)
+            except Exception:
+                pass
+
+    await session.delete(clip)
+    await session.commit()
+    return {"status": "deleted", "clip_id": str(clip_id)}
+
+
+@router.get("/manage/{clip_id}/exports", response_model=list[ClipExportHistoryResponse])
+async def get_clip_exports(
+    clip_id: uuid.UUID,
+    session: AsyncSession = Depends(get_async_session),
+):
+    """Get export history for a clip."""
+    # Verify clip exists
+    clip_result = await session.execute(select(ClipSuggestion).filter(ClipSuggestion.id == clip_id))
+    if not clip_result.scalar_one_or_none():
+        raise HTTPException(status_code=404, detail="Clip not found")
+
+    result = await session.execute(
+        select(ClipExport)
+        .filter(ClipExport.clip_id == clip_id)
+        .order_by(ClipExport.created_at.desc())
+    )
+    exports = result.scalars().all()
+    return [ClipExportHistoryResponse.model_validate(e) for e in exports]
+
+
+@router.get("/manage/{clip_id}/exports/{export_id}/download")
+async def download_clip_export(
+    clip_id: uuid.UUID,
+    export_id: uuid.UUID,
+    session: AsyncSession = Depends(get_async_session),
+):
+    """Download a specific historical export version."""
+    result = await session.execute(
+        select(ClipExport)
+        .filter(ClipExport.id == export_id, ClipExport.clip_id == clip_id)
+    )
+    export = result.scalar_one_or_none()
+    if not export:
+        raise HTTPException(status_code=404, detail="Export not found")
+
+    file_path = Path(export.export_path)
+    if not file_path.is_absolute():
+        file_path = Path.cwd() / export.export_path
+
+    if not file_path.exists():
+        raise HTTPException(status_code=404, detail="Export file not found on disk")
+
+    return FileResponse(
+        path=str(file_path),
+        filename=f"clip_{clip_id}_{export_id}{file_path.suffix}",
+        media_type="video/mp4",
     )
 
 
@@ -290,11 +501,27 @@ async def _export_clip_task(
             captions=captions,
         )
 
-        # Update database
+        # Update database + record export history
         clip = session.query(ClipSuggestion).filter(ClipSuggestion.id == clip_id).first()
         if clip:
             clip.export_path = output_path
             clip.exported = True
+
+            # Record export in history
+            file_size = None
+            try:
+                file_size = Path(output_path).stat().st_size
+            except Exception:
+                pass
+            export_record = ClipExport(
+                id=uuid.uuid4(),
+                clip_id=clip_id,
+                export_path=output_path,
+                format=format,
+                file_size_bytes=file_size,
+                settings_json="{}",
+            )
+            session.add(export_record)
             session.commit()
 
         logger.info(f"Clip exported: {clip_id} -> {output_path}")
@@ -367,6 +594,8 @@ async def export_clip_enhanced(
         suffix_parts.append("branded")
     if request.include_broll:
         suffix_parts.append("broll")
+    if request.split_layout:
+        suffix_parts.append("split")
 
     suffix = "_" + "_".join(suffix_parts) if suffix_parts else ""
     output_filename = f"clip_{clip_id}{suffix}.{request.format}"
@@ -408,6 +637,9 @@ async def export_clip_enhanced(
         auto_zoom=request.auto_zoom,
         remove_silence=request.remove_silence,
         video_fade=request.video_fade,
+        split_layout=request.split_layout,
+        split_ratio=request.split_ratio,
+        separator_color=request.separator_color,
     )
 
     # Export synchronously so file exists before response
@@ -445,6 +677,9 @@ async def _export_clip_enhanced_task(
     auto_zoom: bool = False,
     remove_silence: bool = False,
     video_fade: bool = False,
+    split_layout: bool = False,
+    split_ratio: float = 0.65,
+    separator_color: str = "#333333",
 ):
     """Background task to export clip with enhanced options.
 
@@ -537,6 +772,59 @@ async def _export_clip_enhanced_task(
                         }
                         for seg in segments
                     ]
+
+        # Split layout: generate split video first, then skip standard crop/reframe
+        if split_layout:
+            from app.services.split_layout_service import get_split_layout_service
+
+            split_service = get_split_layout_service()
+            layout_analysis = await split_service.analyze_layout(
+                video_path=video_path,
+                start_time=start_time,
+                end_time=end_time,
+            )
+
+            await split_service.generate_split_video(
+                video_path=video_path,
+                output_path=output_path,
+                layout_analysis=layout_analysis,
+                split_ratio=split_ratio,
+                separator_color=separator_color,
+                start_time=start_time,
+                end_time=end_time,
+            )
+
+            # Update database + record export history
+            import json as json_mod
+            clip = session.query(ClipSuggestion).filter(ClipSuggestion.id == clip_id).first()
+            if clip:
+                clip.export_path = output_path
+                clip.exported = True
+                file_size = None
+                try:
+                    file_size = Path(output_path).stat().st_size
+                except Exception:
+                    pass
+                settings_snapshot = json_mod.dumps({
+                    "format": format,
+                    "split_layout": True,
+                    "split_ratio": split_ratio,
+                    "separator_color": separator_color,
+                    "layout_type": layout_analysis.get("layout_type"),
+                })
+                export_record = ClipExport(
+                    id=uuid.uuid4(),
+                    clip_id=clip_id,
+                    export_path=output_path,
+                    format=format,
+                    file_size_bytes=file_size,
+                    settings_json=settings_snapshot,
+                )
+                session.add(export_record)
+                session.commit()
+
+            logger.info(f"Split layout clip exported: {clip_id} -> {output_path}")
+            return  # Skip standard export pipeline
 
         # Build export options
         export_kwargs = {
@@ -641,11 +929,43 @@ async def _export_clip_enhanced_task(
                     Path(temp_output).unlink(missing_ok=True)
                     logger.info(f"Applied {len(insertions)} B-roll insertions to clip {clip_id}")
 
-        # Update database
+        # Update database + record export history
         clip = session.query(ClipSuggestion).filter(ClipSuggestion.id == clip_id).first()
         if clip:
             clip.export_path = output_path
             clip.exported = True
+
+            # Record export in history with settings snapshot
+            import json
+            file_size = None
+            try:
+                file_size = Path(output_path).stat().st_size
+            except Exception:
+                pass
+            settings_snapshot = json.dumps({
+                "format": format,
+                "resolution": resolution,
+                "include_captions": include_captions,
+                "caption_style_id": caption_style_id,
+                "brand_template_id": brand_template_id,
+                "aspect_ratio": aspect_ratio,
+                "include_broll": include_broll,
+                "remove_fillers": remove_fillers,
+                "add_emojis": add_emojis,
+                "keyword_highlight": keyword_highlight,
+                "auto_zoom": auto_zoom,
+                "remove_silence": remove_silence,
+                "video_fade": video_fade,
+            })
+            export_record = ClipExport(
+                id=uuid.uuid4(),
+                clip_id=clip_id,
+                export_path=output_path,
+                format=format,
+                file_size_bytes=file_size,
+                settings_json=settings_snapshot,
+            )
+            session.add(export_record)
             session.commit()
 
         logger.info(f"Enhanced clip exported: {clip_id} -> {output_path}")
