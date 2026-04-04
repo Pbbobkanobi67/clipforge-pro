@@ -69,6 +69,11 @@
             50% { opacity: 0.5; }
         }
 
+        @keyframes pulse-dot {
+            0%, 100% { opacity: 1; transform: scale(1); }
+            50% { opacity: 0.4; transform: scale(0.75); }
+        }
+
         @keyframes slideIn {
             from { opacity: 0; transform: translateX(-10px); }
             to { opacity: 1; transform: translateX(0); }
@@ -261,7 +266,13 @@
         };
 
         // ============== API HELPERS & CONSTANTS ==============
-        const getApiBase = () => localStorage.getItem('vep-api-url') || 'http://localhost:8001/api/v1';
+        const getApiBase = () => {
+            const saved = localStorage.getItem('vep-api-url');
+            if (saved) return saved;
+            // On localhost, default to local backend; on Vercel/remote, require explicit connection
+            const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+            return isLocal ? 'http://localhost:8000/api/v1' : '';
+        };
         const getDownloadDir = () => localStorage.getItem('vep-download-dir') || '';
 
         // Caption Style Types
@@ -360,7 +371,7 @@
         };
 
         // Header
-        const Header = ({ activeTab, setActiveTab }) => {
+        const Header = ({ activeTab, setActiveTab, bgActivity }) => {
             const tabs = [
                 { id: 'extract', label: 'Extract', icon: Icons.Download },
                 { id: 'aianalysis', label: 'AI Analysis', icon: Icons.Brain },
@@ -439,29 +450,54 @@
                         borderRadius: '12px',
                         width: 'fit-content'
                     }}>
-                        {tabs.map(tab => (
-                            <button
-                                key={tab.id}
-                                onClick={() => setActiveTab(tab.id)}
-                                style={{
-                                    padding: '10px 20px',
-                                    background: activeTab === tab.id ? 'var(--bg-elevated)' : 'transparent',
-                                    border: 'none',
-                                    borderRadius: '8px',
-                                    color: activeTab === tab.id ? 'var(--text-primary)' : 'var(--text-secondary)',
-                                    fontSize: '14px',
-                                    fontWeight: '500',
-                                    cursor: 'pointer',
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    gap: '8px',
-                                    transition: 'all 0.2s'
-                                }}
-                            >
-                                <tab.icon />
-                                {tab.label}
-                            </button>
-                        ))}
+                        {tabs.map(tab => {
+                            const showBadge = tab.id === 'aianalysis' && bgActivity && activeTab !== 'aianalysis';
+                            return (
+                                <button
+                                    key={tab.id}
+                                    onClick={() => setActiveTab(tab.id)}
+                                    style={{
+                                        padding: '10px 20px',
+                                        background: activeTab === tab.id ? 'var(--bg-elevated)' : 'transparent',
+                                        border: 'none',
+                                        borderRadius: '8px',
+                                        color: activeTab === tab.id ? 'var(--text-primary)' : 'var(--text-secondary)',
+                                        fontSize: '14px',
+                                        fontWeight: '500',
+                                        cursor: 'pointer',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: '8px',
+                                        transition: 'all 0.2s',
+                                        position: 'relative'
+                                    }}
+                                >
+                                    <tab.icon />
+                                    {tab.label}
+                                    {showBadge && (
+                                        <span style={{
+                                            display: 'inline-flex',
+                                            alignItems: 'center',
+                                            gap: '4px',
+                                            marginLeft: '4px',
+                                            fontSize: '11px',
+                                            color: 'var(--accent-blue)',
+                                            fontWeight: '600'
+                                        }}>
+                                            <span style={{
+                                                width: '8px',
+                                                height: '8px',
+                                                borderRadius: '50%',
+                                                background: 'var(--accent-blue)',
+                                                display: 'inline-block',
+                                                animation: 'pulse-dot 1.5s ease-in-out infinite'
+                                            }} />
+                                            {bgActivity.progress != null ? `${Math.round(bgActivity.progress)}%` : ''}
+                                        </span>
+                                    )}
+                                </button>
+                            );
+                        })}
                     </nav>
                 </header>
             );
@@ -3404,7 +3440,7 @@
 
         // ============== AI ANALYSIS PAGE ==============
 
-        const AIAnalysisPage = () => {
+        const AIAnalysisPage = ({ onActivityChange }) => {
             const [apiBase, setApiBase] = useState(getApiBase);
             const [downloadDir, setDownloadDir] = useState(getDownloadDir);
             const [showSettings, setShowSettings] = useState(false);
@@ -3437,7 +3473,12 @@
             const [clipEndTime, setClipEndTime] = useState(null);
             const [timelineThumbs, setTimelineThumbs] = useState([]);
             const [thumbsLoading, setThumbsLoading] = useState(false);
+            const [timelineZoom, setTimelineZoom] = useState(1);
+            const [timelineScrollPct, setTimelineScrollPct] = useState(0);
+            const [activeHandle, setActiveHandle] = useState(null); // 'start' | 'end' | null
             const videoRef = useRef(null);
+            const timelineInnerRef = useRef(null);
+            const timelineOuterRef = useRef(null);
 
             // Check backend connection on mount and when API URL changes
             useEffect(() => {
@@ -3489,19 +3530,29 @@
             }, [videoId, videoMeta]);
 
             // Format seconds to MM:SS
-            const formatTime = (seconds) => {
-                if (!seconds || seconds < 0) return '0:00';
+            const formatTime = (seconds, precise) => {
+                if (!seconds || seconds < 0) return precise ? '0:00.0' : '0:00';
                 const h = Math.floor(seconds / 3600);
                 const m = Math.floor((seconds % 3600) / 60);
                 const s = Math.floor(seconds % 60);
+                const frac = Math.floor((seconds % 1) * 10);
+                if (precise) {
+                    if (h > 0) return `${h}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}.${frac}`;
+                    return `${m}:${s.toString().padStart(2, '0')}.${frac}`;
+                }
                 if (h > 0) return `${h}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
                 return `${m}:${s.toString().padStart(2, '0')}`;
             };
 
             // Save settings to localStorage
             const saveSettings = () => {
-                const url = apiUrlInput.trim();
+                let url = apiUrlInput.trim();
                 if (url) {
+                    // Auto-append /api/v1 if user pasted just a base URL
+                    if (url && !url.endsWith('/api/v1') && !url.includes('/api/v1/')) {
+                        url = url.replace(/\/+$/, '') + '/api/v1';
+                        setApiUrlInput(url);
+                    }
                     localStorage.setItem('vep-api-url', url);
                     setApiBase(url);
                 }
@@ -3510,6 +3561,154 @@
                 setDownloadDir(dir);
                 setShowSettings(false);
             };
+
+            // Persist session state to localStorage
+            useEffect(() => {
+                if (!videoId) return;
+                const session = JSON.parse(localStorage.getItem('vep-session') || '{}');
+                session.videoId = videoId;
+                session.jobId = jobId;
+                session.videoUrl = videoUrl;
+                session.clipStartTime = clipStartTime;
+                session.clipEndTime = clipEndTime;
+                session.timestamp = Date.now();
+                localStorage.setItem('vep-session', JSON.stringify(session));
+            }, [videoId, jobId, clipStartTime, clipEndTime]);
+
+            // Report activity changes to parent (for tab badge)
+            useEffect(() => {
+                if (!onActivityChange) return;
+                if (analysisStatus && isLoading) {
+                    onActivityChange({ stage: analysisStatus, progress: analysisProgress });
+                } else {
+                    onActivityChange(null);
+                }
+            }, [analysisStatus, analysisProgress, isLoading, onActivityChange]);
+
+            // Restore session on mount when backend is connected
+            const sessionRestored = useRef(false);
+            useEffect(() => {
+                if (connectionStatus !== 'connected' || sessionRestored.current) return;
+                if (videoId) return; // already has active work
+                sessionRestored.current = true;
+
+                const session = JSON.parse(localStorage.getItem('vep-session') || '{}');
+                if (!session.videoId) return;
+
+                // Check staleness (24 hours)
+                const age = Date.now() - (session.timestamp || 0);
+                if (age > 24 * 60 * 60 * 1000) {
+                    // Clear stale session fields
+                    delete session.videoId; delete session.jobId; delete session.videoUrl;
+                    delete session.clipStartTime; delete session.clipEndTime; delete session.timestamp;
+                    localStorage.setItem('vep-session', JSON.stringify(session));
+                    return;
+                }
+
+                const restoreSession = async () => {
+                    try {
+                        // Check if video still exists
+                        const videoRes = await fetch(`${apiBase}/videos/${session.videoId}`);
+                        if (!videoRes.ok) {
+                            // Video gone — clear session
+                            delete session.videoId; delete session.jobId; delete session.videoUrl;
+                            delete session.clipStartTime; delete session.clipEndTime; delete session.timestamp;
+                            localStorage.setItem('vep-session', JSON.stringify(session));
+                            return;
+                        }
+                        const video = await videoRes.json();
+
+                        if (video.status === 'downloading') {
+                            // Resume download polling
+                            setVideoId(video.id);
+                            if (session.videoUrl) setVideoUrl(session.videoUrl);
+                            setIsLoading(true);
+                            setAnalysisStatus('Resuming download...');
+                            try {
+                                const readyVideo = await waitForVideo(video.id);
+                                setVideoMeta(readyVideo);
+                                setClipStartTime(session.clipStartTime || 0);
+                                setClipEndTime(session.clipEndTime || readyVideo.duration_seconds || null);
+                                setAnalysisStatus(null);
+                                setIsLoading(false);
+                            } catch (err) {
+                                setError(err.message);
+                                setIsLoading(false);
+                            }
+                            return;
+                        }
+
+                        if (video.status === 'error') {
+                            delete session.videoId; delete session.jobId; delete session.videoUrl;
+                            delete session.clipStartTime; delete session.clipEndTime; delete session.timestamp;
+                            localStorage.setItem('vep-session', JSON.stringify(session));
+                            return;
+                        }
+
+                        // Video is ready
+                        setVideoId(video.id);
+                        setVideoMeta(video);
+                        if (session.videoUrl) setVideoUrl(session.videoUrl);
+                        setClipStartTime(session.clipStartTime || 0);
+                        setClipEndTime(session.clipEndTime || video.duration_seconds || null);
+
+                        // Check job status
+                        if (session.jobId) {
+                            try {
+                                const jobRes = await fetch(`${apiBase}/analysis/${session.jobId}/status`);
+                                if (jobRes.ok) {
+                                    const job = await jobRes.json();
+                                    if (job.status === 'completed') {
+                                        setJobId(session.jobId);
+                                        await fetchResults(session.jobId);
+                                        return;
+                                    } else if (job.status === 'failed') {
+                                        setJobId(session.jobId);
+                                        setError(job.error_message || 'Analysis failed');
+                                        return;
+                                    } else {
+                                        // Still running — resume polling
+                                        setJobId(session.jobId);
+                                        setIsLoading(true);
+                                        setAnalysisStatus(job.current_stage || job.status);
+                                        setAnalysisProgress(job.progress || 0);
+                                        pollAnalysisStatus(session.jobId);
+                                        return;
+                                    }
+                                }
+                            } catch (e) {
+                                // Job not found, fall through to latest check
+                            }
+                        }
+
+                        // No jobId or job not found — check for latest analysis
+                        try {
+                            const latestRes = await fetch(`${apiBase}/analysis/${video.id}/latest`);
+                            if (latestRes.ok) {
+                                const latest = await latestRes.json();
+                                if (latest.status === 'completed') {
+                                    setJobId(latest.id);
+                                    await fetchResults(latest.id);
+                                } else if (latest.status === 'failed') {
+                                    // Show timeline, ready for new analysis
+                                } else {
+                                    setJobId(latest.id);
+                                    setIsLoading(true);
+                                    setAnalysisStatus(latest.current_stage || latest.status);
+                                    setAnalysisProgress(latest.progress || 0);
+                                    pollAnalysisStatus(latest.id);
+                                }
+                            }
+                        } catch (e) {
+                            // No analysis found — show timeline ready for new analysis
+                        }
+                    } catch (err) {
+                        console.warn('Session restore failed:', err);
+                    }
+                };
+
+                restoreSession();
+            }, [connectionStatus]);
 
             // Handle file upload
             const handleFileUpload = async (e) => {
@@ -3660,12 +3859,14 @@
 
                     const video = await response.json();
 
-                    // Step 2: Wait for download to complete (don't set videoId yet)
+                    // Persist video ID early so session can resume if page refreshes during download
+                    setVideoId(video.id);
+
+                    // Step 2: Wait for download to complete
                     setAnalysisStatus('Downloading...');
                     const readyVideo = await waitForVideo(video.id);
 
                     // Step 3: Download complete - show timeline for clip selection
-                    setVideoId(video.id);
                     setVideoMeta(readyVideo);
                     setClipStartTime(0);
                     setClipEndTime(readyVideo.duration_seconds || null);
@@ -3949,6 +4150,10 @@
                 setResults(null);
                 setError(null);
                 setIsLoading(false);
+                // Clear persisted session (keep activeTab)
+                const session = JSON.parse(localStorage.getItem('vep-session') || '{}');
+                const { activeTab: tab, ...rest } = session;
+                localStorage.setItem('vep-session', JSON.stringify({ activeTab: tab }));
             };
 
             const formatDuration = (seconds) => {
@@ -4118,8 +4323,9 @@
                                                    connectionStatus === 'checking' ? 'var(--accent-yellow)' : 'var(--accent-red)'
                                     }} />
                                     <span style={{ color: 'var(--text-muted)' }}>
-                                        {connectionStatus === 'connected' ? 'Connected' :
-                                         connectionStatus === 'checking' ? 'Checking...' : 'Disconnected'}
+                                        {connectionStatus === 'connected'
+                                            ? (apiBase.includes('trycloudflare.com') ? 'Tunnel Connected' : 'Connected')
+                                            : connectionStatus === 'checking' ? 'Checking...' : 'Disconnected'}
                                     </span>
                                 </div>
                                 {/* Settings Button */}
@@ -4148,30 +4354,105 @@
                         </div>
                     </div>
 
-                    {/* Connection Warning */}
-                    {connectionStatus === 'disconnected' && (
-                        <div style={{
-                            background: 'rgba(251,191,36,0.1)',
-                            border: '1px solid var(--accent-yellow)',
-                            borderRadius: '12px',
-                            padding: '16px',
-                            marginBottom: '20px'
-                        }}>
-                            <div style={{ display: 'flex', alignItems: 'flex-start', gap: '12px' }}>
-                                <Icons.AlertCircle />
-                                <div>
-                                    <div style={{ fontWeight: '500', marginBottom: '4px' }}>Backend Not Reachable</div>
-                                    <p style={{ fontSize: '13px', color: 'var(--text-muted)', margin: 0 }}>
-                                        Unable to connect to the backend at <code style={{ background: 'var(--bg-elevated)', padding: '2px 6px', borderRadius: '4px' }}>{apiBase.replace(/\/api\/v1\/?$/, '')}</code>.
-                                        Make sure the backend server is running.
-                                    </p>
-                                    <p style={{ fontSize: '13px', color: 'var(--text-muted)', margin: '8px 0 0 0' }}>
-                                        Start the backend: <code style={{ background: 'var(--bg-elevated)', padding: '2px 6px', borderRadius: '4px' }}>cd backend && uvicorn app.main:app --reload</code>
-                                    </p>
+                    {/* Connection Banner - prominent for remote users, compact for local */}
+                    {connectionStatus === 'disconnected' && (() => {
+                        const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+                        return isLocal ? (
+                            <div style={{
+                                background: 'rgba(251,191,36,0.1)',
+                                border: '1px solid var(--accent-yellow)',
+                                borderRadius: '12px',
+                                padding: '16px',
+                                marginBottom: '20px'
+                            }}>
+                                <div style={{ display: 'flex', alignItems: 'flex-start', gap: '12px' }}>
+                                    <Icons.AlertCircle />
+                                    <div>
+                                        <div style={{ fontWeight: '500', marginBottom: '4px' }}>Backend Not Reachable</div>
+                                        <p style={{ fontSize: '13px', color: 'var(--text-muted)', margin: 0 }}>
+                                            Unable to connect to the backend at <code style={{ background: 'var(--bg-elevated)', padding: '2px 6px', borderRadius: '4px' }}>{apiBase.replace(/\/api\/v1\/?$/, '') || 'localhost:8000'}</code>.
+                                            Make sure the backend server is running.
+                                        </p>
+                                        <p style={{ fontSize: '13px', color: 'var(--text-muted)', margin: '8px 0 0 0' }}>
+                                            Start the backend: <code style={{ background: 'var(--bg-elevated)', padding: '2px 6px', borderRadius: '4px' }}>cd backend && uvicorn app.main:app --reload</code>
+                                        </p>
+                                    </div>
                                 </div>
                             </div>
-                        </div>
-                    )}
+                        ) : (
+                            <div style={{
+                                background: 'linear-gradient(135deg, rgba(59,130,246,0.1) 0%, rgba(6,182,212,0.1) 100%)',
+                                border: '1px solid var(--accent-blue)',
+                                borderRadius: '16px',
+                                padding: '24px',
+                                marginBottom: '20px'
+                            }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '16px' }}>
+                                    <Icons.Globe />
+                                    <h3 style={{ fontSize: '18px', fontWeight: '600' }}>Connect to Backend</h3>
+                                </div>
+                                <p style={{ fontSize: '14px', color: 'var(--text-secondary)', marginBottom: '16px', lineHeight: '1.6' }}>
+                                    ClipForge Pro needs a backend server running on your PC. Start a Cloudflare Tunnel and paste the URL below:
+                                </p>
+                                <div style={{
+                                    background: 'var(--bg-elevated)',
+                                    borderRadius: '10px',
+                                    padding: '12px 16px',
+                                    marginBottom: '16px',
+                                    fontFamily: 'var(--font-mono)',
+                                    fontSize: '13px',
+                                    color: 'var(--accent-cyan)',
+                                    border: '1px solid var(--border)'
+                                }}>
+                                    <div style={{ color: 'var(--text-muted)', marginBottom: '4px' }}>1. Start backend:</div>
+                                    <div style={{ marginBottom: '8px' }}>cd backend && python -m uvicorn app.main:app --port 8000</div>
+                                    <div style={{ color: 'var(--text-muted)', marginBottom: '4px' }}>2. Start tunnel:</div>
+                                    <div>cloudflared tunnel --url http://localhost:8000</div>
+                                </div>
+                                <div style={{ display: 'flex', gap: '10px' }}>
+                                    <input
+                                        type="text"
+                                        value={apiUrlInput}
+                                        onChange={e => setApiUrlInput(e.target.value)}
+                                        placeholder="https://your-tunnel.trycloudflare.com/api/v1"
+                                        style={{
+                                            flex: 1,
+                                            padding: '12px 16px',
+                                            background: 'var(--bg-surface)',
+                                            border: '1px solid var(--border)',
+                                            borderRadius: '10px',
+                                            color: 'var(--text-primary)',
+                                            fontSize: '14px',
+                                            fontFamily: 'var(--font-mono)'
+                                        }}
+                                        onKeyDown={e => { if (e.key === 'Enter') { saveSettings(); } }}
+                                    />
+                                    <button
+                                        onClick={saveSettings}
+                                        style={{
+                                            padding: '12px 24px',
+                                            background: 'linear-gradient(135deg, var(--accent-blue) 0%, var(--accent-cyan) 100%)',
+                                            border: 'none',
+                                            borderRadius: '10px',
+                                            color: 'white',
+                                            fontSize: '14px',
+                                            fontWeight: '600',
+                                            cursor: 'pointer',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            gap: '8px',
+                                            whiteSpace: 'nowrap'
+                                        }}
+                                    >
+                                        <Icons.Zap /> Connect
+                                    </button>
+                                </div>
+                                <p style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '10px' }}>
+                                    Paste the full tunnel URL. <code style={{ background: 'var(--bg-elevated)', padding: '2px 6px', borderRadius: '4px' }}>/api/v1</code> will be appended automatically if missing.
+                                </p>
+                            </div>
+                        );
+                    })()}
 
                     {/* Error Display */}
                     {error && (
@@ -4360,11 +4641,88 @@
                         const endPct = duration > 0 ? (effectiveEnd / duration) * 100 : 100;
 
                         const getTimeFromEvent = (e, trackEl) => {
-                            if (!trackEl || !duration) return 0;
-                            const rect = trackEl.getBoundingClientRect();
+                            const inner = timelineInnerRef.current || trackEl;
+                            if (!inner || !duration) return 0;
+                            const rect = inner.getBoundingClientRect();
                             const pct = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
                             return pct * duration;
                         };
+
+                        const scrollTimelineToFraction = (frac) => {
+                            const outer = timelineOuterRef.current;
+                            if (!outer) return;
+                            const maxScroll = outer.scrollWidth - outer.clientWidth;
+                            if (maxScroll <= 0) { setTimelineScrollPct(0); return; }
+                            const clamped = Math.max(0, Math.min(1, frac));
+                            outer.scrollLeft = clamped * maxScroll;
+                            setTimelineScrollPct(clamped);
+                        };
+
+                        const handleTimelineWheel = (e) => {
+                            if (e.ctrlKey || e.metaKey) {
+                                e.preventDefault();
+                                const delta = e.deltaY > 0 ? -1 : 1;
+                                setTimelineZoom(prev => {
+                                    const next = Math.max(1, Math.min(16, prev + delta));
+                                    if (next === 1) setTimelineScrollPct(0);
+                                    return next;
+                                });
+                            } else if (timelineZoom > 1) {
+                                e.preventDefault();
+                                const outer = timelineOuterRef.current;
+                                if (!outer) return;
+                                const maxScroll = outer.scrollWidth - outer.clientWidth;
+                                if (maxScroll <= 0) return;
+                                outer.scrollLeft += e.deltaY + e.deltaX;
+                                setTimelineScrollPct(outer.scrollLeft / maxScroll);
+                            }
+                        };
+
+                        const handleTimelineKeyDown = (e) => {
+                            if (e.key === '+' || e.key === '=') {
+                                e.preventDefault();
+                                setTimelineZoom(prev => Math.min(16, prev + 1));
+                            } else if (e.key === '-' || e.key === '_') {
+                                e.preventDefault();
+                                setTimelineZoom(prev => {
+                                    const next = Math.max(1, prev - 1);
+                                    if (next === 1) setTimelineScrollPct(0);
+                                    return next;
+                                });
+                            } else if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+                                e.preventDefault();
+                                const step = e.shiftKey ? (1/30) : 1;
+                                const dir = e.key === 'ArrowLeft' ? -1 : 1;
+                                if (activeHandle === 'start') {
+                                    setClipStartTime(prev => Math.max(0, Math.min(prev + dir * step, effectiveEnd - 1)));
+                                } else if (activeHandle === 'end') {
+                                    setClipEndTime(prev => {
+                                        const cur = prev || duration;
+                                        return Math.min(duration, Math.max(cur + dir * step, clipStartTime + 1));
+                                    });
+                                } else if (videoRef.current) {
+                                    videoRef.current.currentTime = Math.max(0, Math.min(duration, videoRef.current.currentTime + dir * step));
+                                }
+                            }
+                        };
+
+                        const adjustHandle = (delta) => {
+                            if (activeHandle === 'start') {
+                                const next = Math.max(0, Math.min(clipStartTime + delta, effectiveEnd - 1));
+                                setClipStartTime(next);
+                                if (videoRef.current) videoRef.current.currentTime = next;
+                            } else if (activeHandle === 'end') {
+                                const cur = clipEndTime || duration;
+                                const next = Math.min(duration, Math.max(cur + delta, clipStartTime + 1));
+                                setClipEndTime(next);
+                                if (videoRef.current) videoRef.current.currentTime = next;
+                            } else if (videoRef.current) {
+                                videoRef.current.currentTime = Math.max(0, Math.min(duration, videoRef.current.currentTime + delta));
+                            }
+                        };
+
+                        const precise = timelineZoom > 1;
+                        const viewportFrac = 1 / timelineZoom;
 
                         return (
                         <div style={{
@@ -4400,154 +4758,315 @@
 
                             {/* Timeline Clipper */}
                             {duration > 0 && (
-                                <div style={{ marginBottom: '16px' }}>
-                                    {/* Timeline Track */}
+                                <div
+                                    style={{ marginBottom: '16px', outline: 'none' }}
+                                    tabIndex={0}
+                                    onKeyDown={handleTimelineKeyDown}
+                                >
+                                    {/* Zoom Controls Bar */}
+                                    <div style={{
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: '8px',
+                                        marginBottom: '8px',
+                                        padding: '6px 12px',
+                                        background: 'var(--bg-elevated)',
+                                        borderRadius: '8px',
+                                        fontSize: '12px',
+                                    }}>
+                                        <button
+                                            onClick={() => setTimelineZoom(prev => { const n = Math.max(1, prev - 1); if (n === 1) setTimelineScrollPct(0); return n; })}
+                                            disabled={timelineZoom <= 1}
+                                            style={{
+                                                background: 'none', border: '1px solid var(--border)', borderRadius: '4px',
+                                                color: timelineZoom <= 1 ? 'var(--text-muted)' : 'var(--text-primary)',
+                                                cursor: timelineZoom <= 1 ? 'default' : 'pointer',
+                                                padding: '2px 8px', fontSize: '14px', fontWeight: '700', lineHeight: '1',
+                                            }}
+                                        >-</button>
+                                        <input
+                                            type="range"
+                                            min="1" max="16" step="1"
+                                            value={timelineZoom}
+                                            onChange={(e) => {
+                                                const v = Number(e.target.value);
+                                                setTimelineZoom(v);
+                                                if (v === 1) setTimelineScrollPct(0);
+                                            }}
+                                            style={{ flex: 1, maxWidth: '120px', accentColor: 'var(--accent-blue)' }}
+                                        />
+                                        <button
+                                            onClick={() => setTimelineZoom(prev => Math.min(16, prev + 1))}
+                                            disabled={timelineZoom >= 16}
+                                            style={{
+                                                background: 'none', border: '1px solid var(--border)', borderRadius: '4px',
+                                                color: timelineZoom >= 16 ? 'var(--text-muted)' : 'var(--text-primary)',
+                                                cursor: timelineZoom >= 16 ? 'default' : 'pointer',
+                                                padding: '2px 8px', fontSize: '14px', fontWeight: '700', lineHeight: '1',
+                                            }}
+                                        >+</button>
+                                        <span style={{
+                                            fontFamily: 'var(--font-mono)', fontWeight: '600',
+                                            color: 'var(--accent-blue)', minWidth: '36px', textAlign: 'center',
+                                        }}>{timelineZoom}x</span>
+                                        {timelineZoom > 1 && (
+                                            <button
+                                                onClick={() => { setTimelineZoom(1); setTimelineScrollPct(0); }}
+                                                style={{
+                                                    background: 'none', border: '1px solid var(--border)', borderRadius: '4px',
+                                                    color: 'var(--text-secondary)', cursor: 'pointer',
+                                                    padding: '2px 10px', fontSize: '11px', fontWeight: '500',
+                                                }}
+                                            >Fit</button>
+                                        )}
+                                        <span style={{ color: 'var(--text-muted)', marginLeft: 'auto', fontSize: '11px' }}>
+                                            {timelineZoom > 1 ? 'Ctrl+Scroll to zoom, Scroll to pan' : 'Ctrl+Scroll to zoom'}
+                                        </span>
+                                    </div>
+
+                                    {/* Scrollable Timeline Outer Container */}
                                     <div
-                                        style={{
-                                            position: 'relative',
-                                            height: '56px',
-                                            borderRadius: '8px',
-                                            overflow: 'hidden',
-                                            border: '1px solid var(--border)',
-                                            background: 'var(--bg-elevated)',
-                                            cursor: 'pointer',
-                                            userSelect: 'none',
+                                        ref={timelineOuterRef}
+                                        onWheel={handleTimelineWheel}
+                                        onScroll={(e) => {
+                                            const outer = e.currentTarget;
+                                            const maxScroll = outer.scrollWidth - outer.clientWidth;
+                                            if (maxScroll > 0) setTimelineScrollPct(outer.scrollLeft / maxScroll);
                                         }}
-                                        onClick={(e) => {
-                                            const track = e.currentTarget;
-                                            const t = getTimeFromEvent(e, track);
-                                            if (videoRef.current) videoRef.current.currentTime = t;
+                                        style={{
+                                            overflowX: timelineZoom > 1 ? 'auto' : 'hidden',
+                                            overflowY: 'hidden',
+                                            borderRadius: '8px',
+                                            border: '1px solid var(--border)',
+                                            scrollbarWidth: 'thin',
+                                            scrollbarColor: 'var(--accent-blue) var(--bg-elevated)',
                                         }}
                                     >
-                                        {/* Thumbnail strip */}
-                                        <div style={{
-                                            display: 'flex',
-                                            height: '100%',
-                                            position: 'absolute',
-                                            top: 0, left: 0, right: 0, bottom: 0,
-                                        }}>
-                                            {timelineThumbs.length > 0 ? timelineThumbs.map((thumb, i) => (
-                                                <img
-                                                    key={i}
-                                                    src={`data:image/jpeg;base64,${thumb.data}`}
-                                                    alt=""
-                                                    style={{
-                                                        flex: 1,
-                                                        height: '100%',
-                                                        objectFit: 'cover',
-                                                        pointerEvents: 'none',
-                                                    }}
-                                                />
-                                            )) : (
-                                                <div
-                                                    onClick={(e) => { e.stopPropagation(); fetchTimelineThumbs(); }}
-                                                    style={{
-                                                        display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                                        width: '100%', color: 'var(--accent-blue)', fontSize: '13px',
-                                                        cursor: 'pointer', fontWeight: '500',
-                                                    }}
-                                                >
-                                                    {thumbsLoading ? 'Loading thumbnails...' : 'Click to load timeline thumbnails'}
-                                                </div>
-                                            )}
-                                        </div>
-
-                                        {/* Dimmed region: before start */}
-                                        <div style={{
-                                            position: 'absolute', top: 0, left: 0, bottom: 0,
-                                            width: `${startPct}%`,
-                                            background: 'rgba(0,0,0,0.65)',
-                                            pointerEvents: 'none',
-                                        }} />
-
-                                        {/* Dimmed region: after end */}
-                                        <div style={{
-                                            position: 'absolute', top: 0, right: 0, bottom: 0,
-                                            width: `${100 - endPct}%`,
-                                            background: 'rgba(0,0,0,0.65)',
-                                            pointerEvents: 'none',
-                                        }} />
-
-                                        {/* Selected region border */}
-                                        <div style={{
-                                            position: 'absolute', top: 0, bottom: 0,
-                                            left: `${startPct}%`,
-                                            width: `${endPct - startPct}%`,
-                                            borderTop: '2px solid var(--accent-blue)',
-                                            borderBottom: '2px solid var(--accent-blue)',
-                                            pointerEvents: 'none',
-                                        }} />
-
-                                        {/* Start handle */}
+                                        {/* Scaled Inner Content */}
                                         <div
+                                            ref={timelineInnerRef}
                                             style={{
+                                                position: 'relative',
+                                                height: '56px',
+                                                width: `${timelineZoom * 100}%`,
+                                                background: 'var(--bg-elevated)',
+                                                cursor: 'pointer',
+                                                userSelect: 'none',
+                                            }}
+                                            onClick={(e) => {
+                                                const inner = timelineInnerRef.current;
+                                                const t = getTimeFromEvent(e, inner);
+                                                if (videoRef.current) videoRef.current.currentTime = t;
+                                            }}
+                                        >
+                                            {/* Thumbnail strip */}
+                                            <div style={{
+                                                display: 'flex',
+                                                height: '100%',
+                                                position: 'absolute',
+                                                top: 0, left: 0, right: 0, bottom: 0,
+                                            }}>
+                                                {timelineThumbs.length > 0 ? timelineThumbs.map((thumb, i) => (
+                                                    <img
+                                                        key={i}
+                                                        src={`data:image/jpeg;base64,${thumb.data}`}
+                                                        alt=""
+                                                        style={{
+                                                            flex: 1,
+                                                            height: '100%',
+                                                            objectFit: 'cover',
+                                                            pointerEvents: 'none',
+                                                        }}
+                                                    />
+                                                )) : (
+                                                    <div
+                                                        onClick={(e) => { e.stopPropagation(); fetchTimelineThumbs(); }}
+                                                        style={{
+                                                            display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                                            width: '100%', color: 'var(--accent-blue)', fontSize: '13px',
+                                                            cursor: 'pointer', fontWeight: '500',
+                                                        }}
+                                                    >
+                                                        {thumbsLoading ? 'Loading thumbnails...' : 'Click to load timeline thumbnails'}
+                                                    </div>
+                                                )}
+                                            </div>
+
+                                            {/* Dimmed region: before start */}
+                                            <div style={{
+                                                position: 'absolute', top: 0, left: 0, bottom: 0,
+                                                width: `${startPct}%`,
+                                                background: 'rgba(0,0,0,0.65)',
+                                                pointerEvents: 'none',
+                                            }} />
+
+                                            {/* Dimmed region: after end */}
+                                            <div style={{
+                                                position: 'absolute', top: 0, right: 0, bottom: 0,
+                                                width: `${100 - endPct}%`,
+                                                background: 'rgba(0,0,0,0.65)',
+                                                pointerEvents: 'none',
+                                            }} />
+
+                                            {/* Selected region border */}
+                                            <div style={{
                                                 position: 'absolute', top: 0, bottom: 0,
                                                 left: `${startPct}%`,
-                                                width: '10px',
-                                                marginLeft: '-5px',
-                                                background: 'var(--accent-blue)',
-                                                cursor: 'ew-resize',
-                                                display: 'flex',
-                                                alignItems: 'center',
-                                                justifyContent: 'center',
-                                                zIndex: 10,
-                                                borderRadius: '3px 0 0 3px',
-                                            }}
-                                            onMouseDown={(e) => {
-                                                e.stopPropagation();
-                                                const track = e.currentTarget.parentElement;
-                                                const onMove = (ev) => {
-                                                    const t = getTimeFromEvent(ev, track);
-                                                    const clamped = Math.max(0, Math.min(t, effectiveEnd - 10));
-                                                    setClipStartTime(clamped);
-                                                    if (videoRef.current) videoRef.current.currentTime = clamped;
-                                                };
-                                                const onUp = () => {
-                                                    document.removeEventListener('mousemove', onMove);
-                                                    document.removeEventListener('mouseup', onUp);
-                                                };
-                                                document.addEventListener('mousemove', onMove);
-                                                document.addEventListener('mouseup', onUp);
-                                            }}
-                                        >
-                                            <div style={{ width: '2px', height: '16px', background: 'rgba(255,255,255,0.7)', borderRadius: '1px' }} />
-                                        </div>
+                                                width: `${endPct - startPct}%`,
+                                                borderTop: '2px solid var(--accent-blue)',
+                                                borderBottom: '2px solid var(--accent-blue)',
+                                                pointerEvents: 'none',
+                                            }} />
 
-                                        {/* End handle */}
-                                        <div
-                                            style={{
-                                                position: 'absolute', top: 0, bottom: 0,
-                                                left: `${endPct}%`,
-                                                width: '10px',
-                                                marginLeft: '-5px',
-                                                background: 'var(--accent-blue)',
-                                                cursor: 'ew-resize',
-                                                display: 'flex',
-                                                alignItems: 'center',
-                                                justifyContent: 'center',
-                                                zIndex: 10,
-                                                borderRadius: '0 3px 3px 0',
-                                            }}
-                                            onMouseDown={(e) => {
-                                                e.stopPropagation();
-                                                const track = e.currentTarget.parentElement;
-                                                const onMove = (ev) => {
-                                                    const t = getTimeFromEvent(ev, track);
-                                                    const clamped = Math.min(duration, Math.max(t, clipStartTime + 10));
-                                                    setClipEndTime(clamped);
-                                                    if (videoRef.current) videoRef.current.currentTime = clamped;
-                                                };
-                                                const onUp = () => {
-                                                    document.removeEventListener('mousemove', onMove);
-                                                    document.removeEventListener('mouseup', onUp);
-                                                };
-                                                document.addEventListener('mousemove', onMove);
-                                                document.addEventListener('mouseup', onUp);
-                                            }}
-                                        >
-                                            <div style={{ width: '2px', height: '16px', background: 'rgba(255,255,255,0.7)', borderRadius: '1px' }} />
+                                            {/* Start handle */}
+                                            <div
+                                                style={{
+                                                    position: 'absolute', top: 0, bottom: 0,
+                                                    left: `${startPct}%`,
+                                                    width: '10px',
+                                                    marginLeft: '-5px',
+                                                    background: activeHandle === 'start' ? '#5ba8ff' : 'var(--accent-blue)',
+                                                    cursor: 'ew-resize',
+                                                    display: 'flex',
+                                                    alignItems: 'center',
+                                                    justifyContent: 'center',
+                                                    zIndex: 10,
+                                                    borderRadius: '3px 0 0 3px',
+                                                }}
+                                                onMouseDown={(e) => {
+                                                    e.stopPropagation();
+                                                    setActiveHandle('start');
+                                                    const inner = timelineInnerRef.current;
+                                                    const onMove = (ev) => {
+                                                        const t = getTimeFromEvent(ev, inner);
+                                                        const clamped = Math.max(0, Math.min(t, effectiveEnd - 10));
+                                                        setClipStartTime(clamped);
+                                                        if (videoRef.current) videoRef.current.currentTime = clamped;
+                                                    };
+                                                    const onUp = () => {
+                                                        document.removeEventListener('mousemove', onMove);
+                                                        document.removeEventListener('mouseup', onUp);
+                                                    };
+                                                    document.addEventListener('mousemove', onMove);
+                                                    document.addEventListener('mouseup', onUp);
+                                                }}
+                                            >
+                                                <div style={{ width: '2px', height: '16px', background: 'rgba(255,255,255,0.7)', borderRadius: '1px' }} />
+                                            </div>
+
+                                            {/* End handle */}
+                                            <div
+                                                style={{
+                                                    position: 'absolute', top: 0, bottom: 0,
+                                                    left: `${endPct}%`,
+                                                    width: '10px',
+                                                    marginLeft: '-5px',
+                                                    background: activeHandle === 'end' ? '#5ba8ff' : 'var(--accent-blue)',
+                                                    cursor: 'ew-resize',
+                                                    display: 'flex',
+                                                    alignItems: 'center',
+                                                    justifyContent: 'center',
+                                                    zIndex: 10,
+                                                    borderRadius: '0 3px 3px 0',
+                                                }}
+                                                onMouseDown={(e) => {
+                                                    e.stopPropagation();
+                                                    setActiveHandle('end');
+                                                    const inner = timelineInnerRef.current;
+                                                    const onMove = (ev) => {
+                                                        const t = getTimeFromEvent(ev, inner);
+                                                        const clamped = Math.min(duration, Math.max(t, clipStartTime + 10));
+                                                        setClipEndTime(clamped);
+                                                        if (videoRef.current) videoRef.current.currentTime = clamped;
+                                                    };
+                                                    const onUp = () => {
+                                                        document.removeEventListener('mousemove', onMove);
+                                                        document.removeEventListener('mouseup', onUp);
+                                                    };
+                                                    document.addEventListener('mousemove', onMove);
+                                                    document.addEventListener('mouseup', onUp);
+                                                }}
+                                            >
+                                                <div style={{ width: '2px', height: '16px', background: 'rgba(255,255,255,0.7)', borderRadius: '1px' }} />
+                                            </div>
                                         </div>
                                     </div>
+
+                                    {/* Minimap — only shown when zoomed */}
+                                    {timelineZoom > 1 && (
+                                        <div
+                                            style={{
+                                                position: 'relative',
+                                                height: '20px',
+                                                marginTop: '6px',
+                                                borderRadius: '4px',
+                                                background: 'var(--bg-elevated)',
+                                                border: '1px solid var(--border)',
+                                                cursor: 'pointer',
+                                                userSelect: 'none',
+                                            }}
+                                            onMouseDown={(e) => {
+                                                const bar = e.currentTarget;
+                                                const update = (ev) => {
+                                                    const rect = bar.getBoundingClientRect();
+                                                    const clickPct = Math.max(0, Math.min(1, (ev.clientX - rect.left) / rect.width));
+                                                    const half = viewportFrac / 2;
+                                                    const centerClamped = Math.max(half, Math.min(1 - half, clickPct));
+                                                    const scrollFrac = (centerClamped - half) / (1 - viewportFrac);
+                                                    scrollTimelineToFraction(scrollFrac);
+                                                };
+                                                update(e);
+                                                const onMove = (ev) => update(ev);
+                                                const onUp = () => {
+                                                    document.removeEventListener('mousemove', onMove);
+                                                    document.removeEventListener('mouseup', onUp);
+                                                };
+                                                document.addEventListener('mousemove', onMove);
+                                                document.addEventListener('mouseup', onUp);
+                                            }}
+                                        >
+                                            {/* Dimmed regions on minimap */}
+                                            <div style={{
+                                                position: 'absolute', top: 0, left: 0, bottom: 0,
+                                                width: `${startPct}%`,
+                                                background: 'rgba(0,0,0,0.5)',
+                                                borderRadius: '4px 0 0 4px',
+                                                pointerEvents: 'none',
+                                            }} />
+                                            <div style={{
+                                                position: 'absolute', top: 0, right: 0, bottom: 0,
+                                                width: `${100 - endPct}%`,
+                                                background: 'rgba(0,0,0,0.5)',
+                                                borderRadius: '0 4px 4px 0',
+                                                pointerEvents: 'none',
+                                            }} />
+                                            {/* Start marker */}
+                                            <div style={{
+                                                position: 'absolute', top: 0, bottom: 0,
+                                                left: `${startPct}%`, width: '2px',
+                                                background: 'var(--accent-blue)',
+                                                pointerEvents: 'none',
+                                            }} />
+                                            {/* End marker */}
+                                            <div style={{
+                                                position: 'absolute', top: 0, bottom: 0,
+                                                left: `${endPct}%`, width: '2px',
+                                                background: 'var(--accent-blue)',
+                                                pointerEvents: 'none',
+                                            }} />
+                                            {/* Viewport rectangle */}
+                                            <div style={{
+                                                position: 'absolute',
+                                                top: 0, bottom: 0,
+                                                left: `${timelineScrollPct * (1 - viewportFrac) * 100}%`,
+                                                width: `${viewportFrac * 100}%`,
+                                                border: '2px solid var(--accent-blue)',
+                                                borderRadius: '3px',
+                                                background: 'rgba(59, 130, 246, 0.15)',
+                                                pointerEvents: 'none',
+                                            }} />
+                                        </div>
+                                    )}
 
                                     {/* Time labels */}
                                     <div style={{
@@ -4562,30 +5081,75 @@
                                         <span>{formatTime(duration)}</span>
                                     </div>
 
-                                    {/* Clip info */}
+                                    {/* Clip info + Precision controls */}
                                     <div style={{
                                         display: 'flex',
                                         justifyContent: 'center',
                                         alignItems: 'center',
-                                        gap: '16px',
+                                        gap: '12px',
                                         marginTop: '12px',
                                         padding: '10px 16px',
                                         background: 'var(--bg-elevated)',
                                         borderRadius: '8px',
                                         fontSize: '13px',
+                                        flexWrap: 'wrap',
                                     }}>
                                         <span style={{ color: 'var(--text-muted)' }}>Start:</span>
-                                        <span style={{ color: 'var(--accent-blue)', fontFamily: 'var(--font-mono)', fontWeight: '600' }}>
-                                            {formatTime(clipStartTime)}
+                                        <span
+                                            onClick={() => setActiveHandle('start')}
+                                            style={{
+                                                color: 'var(--accent-blue)', fontFamily: 'var(--font-mono)', fontWeight: '600',
+                                                cursor: 'pointer', padding: '2px 6px', borderRadius: '4px',
+                                                background: activeHandle === 'start' ? 'rgba(59,130,246,0.2)' : 'transparent',
+                                                border: activeHandle === 'start' ? '1px solid var(--accent-blue)' : '1px solid transparent',
+                                            }}
+                                        >
+                                            {formatTime(clipStartTime, precise)}
                                         </span>
                                         <span style={{ color: 'var(--text-muted)' }}>End:</span>
-                                        <span style={{ color: 'var(--accent-blue)', fontFamily: 'var(--font-mono)', fontWeight: '600' }}>
-                                            {formatTime(effectiveEnd)}
+                                        <span
+                                            onClick={() => setActiveHandle('end')}
+                                            style={{
+                                                color: 'var(--accent-blue)', fontFamily: 'var(--font-mono)', fontWeight: '600',
+                                                cursor: 'pointer', padding: '2px 6px', borderRadius: '4px',
+                                                background: activeHandle === 'end' ? 'rgba(59,130,246,0.2)' : 'transparent',
+                                                border: activeHandle === 'end' ? '1px solid var(--accent-blue)' : '1px solid transparent',
+                                            }}
+                                        >
+                                            {formatTime(effectiveEnd, precise)}
                                         </span>
                                         <span style={{ color: 'var(--text-muted)' }}>Duration:</span>
                                         <span style={{ color: 'var(--accent-purple)', fontFamily: 'var(--font-mono)', fontWeight: '600' }}>
-                                            {formatTime(clipDuration)}
+                                            {formatTime(clipDuration, precise)}
                                         </span>
+
+                                        {/* Precision step buttons */}
+                                        <div style={{
+                                            display: 'flex', alignItems: 'center', gap: '4px',
+                                            marginLeft: '8px', borderLeft: '1px solid var(--border)', paddingLeft: '12px',
+                                        }}>
+                                            {[
+                                                { label: '-1s', delta: -1 },
+                                                { label: '-1f', delta: -(1/30) },
+                                                { label: '+1f', delta: 1/30 },
+                                                { label: '+1s', delta: 1 },
+                                            ].map(({ label, delta }) => (
+                                                <button
+                                                    key={label}
+                                                    onClick={() => adjustHandle(delta)}
+                                                    style={{
+                                                        background: 'none', border: '1px solid var(--border)', borderRadius: '4px',
+                                                        color: 'var(--text-secondary)', cursor: 'pointer',
+                                                        padding: '2px 7px', fontSize: '11px', fontFamily: 'var(--font-mono)',
+                                                        fontWeight: '500',
+                                                    }}
+                                                    title={`Step ${label} (${activeHandle ? activeHandle + ' handle' : 'playhead'})`}
+                                                >{label}</button>
+                                            ))}
+                                            <span style={{ fontSize: '10px', color: 'var(--text-muted)', marginLeft: '4px' }}>
+                                                {activeHandle ? activeHandle : 'playhead'}
+                                            </span>
+                                        </div>
                                     </div>
                                 </div>
                             )}
@@ -5204,7 +5768,11 @@
 
         // Main App
         const App = () => {
-            const [activeTab, setActiveTab] = useState('extract');
+            const [activeTab, setActiveTab] = useState(() => {
+                const session = JSON.parse(localStorage.getItem('vep-session') || '{}');
+                return session.activeTab || 'extract';
+            });
+            const [bgActivity, setBgActivity] = useState(null);
             const [url, setUrl] = useState('');
             const [presets, setPresets] = useState(() => {
                 const saved = localStorage.getItem('vep-presets');
@@ -5219,6 +5787,13 @@
                 const saved = localStorage.getItem('vep-history');
                 return saved ? JSON.parse(saved) : [];
             });
+
+            // Save activeTab to session
+            useEffect(() => {
+                const session = JSON.parse(localStorage.getItem('vep-session') || '{}');
+                session.activeTab = activeTab;
+                localStorage.setItem('vep-session', JSON.stringify(session));
+            }, [activeTab]);
 
             // Save presets to localStorage
             useEffect(() => {
@@ -5301,7 +5876,7 @@
 
             return (
                 <div className="app">
-                    <Header activeTab={activeTab} setActiveTab={setActiveTab} />
+                    <Header activeTab={activeTab} setActiveTab={setActiveTab} bgActivity={bgActivity} />
                     
                     {activeTab === 'extract' && (
                         <div className="animate-in">
@@ -5419,7 +5994,9 @@
                         />
                     )}
                     
-                    {activeTab === 'aianalysis' && <AIAnalysisPage />}
+                    <div style={{ display: activeTab === 'aianalysis' ? 'block' : 'none' }}>
+                        <AIAnalysisPage onActivityChange={setBgActivity} />
+                    </div>
 
                     {activeTab === 'profeatures' && <ProFeaturesPage />}
 
