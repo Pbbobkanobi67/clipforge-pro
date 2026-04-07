@@ -9,6 +9,7 @@ from typing import Optional
 import asyncio
 import base64
 import mimetypes
+import subprocess
 
 import aiofiles
 from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile, BackgroundTasks
@@ -24,6 +25,77 @@ from app.services.video_service import VideoService
 logger = logging.getLogger(__name__)
 router = APIRouter()
 settings = get_settings()
+
+
+@router.get("/", response_model=list[VideoResponse])
+async def list_videos(
+    limit: int = Query(default=50, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
+    session: AsyncSession = Depends(get_async_session),
+):
+    """List all uploaded videos, newest first, with analysis status."""
+    result = await session.execute(
+        select(Video).order_by(Video.created_at.desc()).offset(offset).limit(limit)
+    )
+    videos = result.scalars().all()
+    return videos
+
+
+@router.get("/library")
+async def get_video_library(
+    limit: int = Query(default=50, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
+    session: AsyncSession = Depends(get_async_session),
+):
+    """
+    Get video library with analysis status and clip counts.
+
+    Returns enriched video data for the library view.
+    """
+    from app.models.database import AnalysisJob, AnalysisStatus, ClipSuggestion
+
+    result = await session.execute(
+        select(Video).order_by(Video.created_at.desc()).offset(offset).limit(limit)
+    )
+    videos = result.scalars().all()
+
+    library = []
+    for video in videos:
+        # Get latest analysis job
+        job_result = await session.execute(
+            select(AnalysisJob)
+            .filter(AnalysisJob.video_id == video.id)
+            .order_by(AnalysisJob.created_at.desc())
+            .limit(1)
+        )
+        job = job_result.scalar_one_or_none()
+
+        # Get clip count if analysis is complete
+        clip_count = 0
+        if job:
+            clip_result = await session.execute(
+                select(ClipSuggestion)
+                .filter(ClipSuggestion.analysis_job_id == job.id)
+            )
+            clip_count = len(clip_result.scalars().all())
+
+        library.append({
+            "id": str(video.id),
+            "title": video.title or video.original_filename or "Untitled",
+            "original_filename": video.original_filename,
+            "source_url": video.source_url,
+            "created_at": video.created_at.isoformat() if video.created_at else None,
+            "duration_seconds": video.duration_seconds,
+            "width": video.width,
+            "height": video.height,
+            "status": video.status.value if video.status else "unknown",
+            "analysis_status": job.status.value if job else None,
+            "analysis_progress": job.progress if job else None,
+            "clip_count": clip_count,
+            "thumbnail_path": video.thumbnail_path,
+        })
+
+    return {"videos": library, "total": len(library), "offset": offset}
 
 
 @router.post("/upload", response_model=VideoResponse)
@@ -360,14 +432,9 @@ async def get_timeline_thumbnails(
                     "-y",
                     str(thumb_path),
                 ]
-                proc = await asyncio.create_subprocess_exec(
-                    *cmd,
-                    stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.PIPE,
-                )
-                _, stderr = await proc.communicate()
-                if proc.returncode != 0:
-                    logger.warning(f"ffmpeg failed for thumb at {timestamp}s: {stderr.decode()[:200]}")
+                result = await asyncio.to_thread(subprocess.run, cmd, capture_output=True)
+                if result.returncode != 0:
+                    logger.warning(f"ffmpeg failed for thumb at {timestamp}s: {result.stderr.decode()[:200]}")
                     continue
             except Exception as e:
                 logger.warning(f"Failed to extract thumbnail at {timestamp}s: {e}")
@@ -381,6 +448,30 @@ async def get_timeline_thumbnails(
             })
 
     return {"thumbnails": thumbnails, "duration": duration, "count": len(thumbnails)}
+
+
+@router.get("/{video_id}/thumbnail")
+async def get_video_thumbnail(
+    video_id: uuid.UUID,
+    session: AsyncSession = Depends(get_async_session),
+):
+    """Serve video thumbnail image."""
+    from fastapi.responses import FileResponse
+
+    result = await session.execute(select(Video).filter(Video.id == video_id))
+    video = result.scalar_one_or_none()
+
+    if not video or not video.thumbnail_path:
+        raise HTTPException(status_code=404, detail="Thumbnail not found")
+
+    thumb_path = Path(video.thumbnail_path)
+    if not thumb_path.is_absolute():
+        thumb_path = Path.cwd() / video.thumbnail_path
+    if not thumb_path.exists():
+        raise HTTPException(status_code=404, detail="Thumbnail file not found on disk")
+
+    content_type = mimetypes.guess_type(str(thumb_path))[0] or "image/webp"
+    return FileResponse(str(thumb_path), media_type=content_type)
 
 
 @router.get("/{video_id}", response_model=VideoResponse)

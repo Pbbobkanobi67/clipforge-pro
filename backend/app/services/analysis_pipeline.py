@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+import subprocess
 import uuid
 from datetime import datetime
 from pathlib import Path
@@ -100,14 +101,11 @@ async def run_pipeline_async(
                 "-y",
                 trimmed_path,
             ]
-            proc = await asyncio.create_subprocess_exec(
-                *cmd,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-            )
-            _, stderr = await proc.communicate()
-            if proc.returncode != 0:
-                raise Exception(f"Video trimming failed: {stderr.decode()[:500]}")
+            def _trim():
+                return subprocess.run(cmd, capture_output=True)
+            result = await asyncio.to_thread(_trim)
+            if result.returncode != 0:
+                raise Exception(f"Video trimming failed: {result.stderr.decode()[:500]}")
             video_path = trimmed_path
             logger.info(f"Trimmed video to {duration:.1f}s for job {job_id}")
 

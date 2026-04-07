@@ -678,7 +678,7 @@ async def _export_clip_enhanced_task(
     remove_silence: bool = False,
     video_fade: bool = False,
     split_layout: bool = False,
-    split_ratio: float = 0.65,
+    split_ratio: Optional[float] = None,
     separator_color: str = "#333333",
 ):
     """Background task to export clip with enhanced options.
@@ -727,29 +727,46 @@ async def _export_clip_enhanced_task(
                     .all()
                 )
 
-                if caption_style and segments:
-                    # Generate ASS subtitles with style
+                if segments:
+                    if caption_style:
+                        # User-selected caption style
+                        style_config = {
+                            "style_type": caption_style.style_type,
+                            "font_family": caption_style.font_family,
+                            "font_size": caption_style.font_size,
+                            "font_weight": caption_style.font_weight,
+                            "text_color": caption_style.text_color,
+                            "highlight_color": caption_style.highlight_color,
+                            "background_color": caption_style.background_color,
+                            "stroke_color": caption_style.stroke_color,
+                            "stroke_width": caption_style.stroke_width,
+                            "position": caption_style.position,
+                            "margin_bottom": caption_style.margin_bottom,
+                            "animation_duration": caption_style.animation_duration,
+                            "words_per_line": caption_style.words_per_line,
+                            "keyword_highlight": keyword_highlight,
+                        }
+                    else:
+                        # Default style (used when caption_style_id is None but captions requested)
+                        style_config = {
+                            "style_type": "karaoke",
+                            "font_family": "Arial",
+                            "font_size": 64,
+                            "font_weight": "bold",
+                            "text_color": "#FFFFFF",
+                            "highlight_color": "#FFE600",
+                            "background_color": None,
+                            "stroke_color": "#000000",
+                            "stroke_width": 4,
+                            "position": "bottom",
+                            "margin_bottom": 120,
+                            "animation_duration": 0.3,
+                            "words_per_line": 4,
+                            "keyword_highlight": keyword_highlight,
+                        }
+
                     caption_service = CaptionService()
                     ass_path = output_path.replace(f".{format}", ".ass")
-
-                    # Convert caption style to dict
-                    style_config = {
-                        "style_type": caption_style.style_type,
-                        "font_family": caption_style.font_family,
-                        "font_size": caption_style.font_size,
-                        "font_weight": caption_style.font_weight,
-                        "text_color": caption_style.text_color,
-                        "highlight_color": caption_style.highlight_color,
-                        "background_color": caption_style.background_color,
-                        "stroke_color": caption_style.stroke_color,
-                        "stroke_width": caption_style.stroke_width,
-                        "position": caption_style.position,
-                        "margin_bottom": caption_style.margin_bottom,
-                        "animation_duration": caption_style.animation_duration,
-                        "words_per_line": caption_style.words_per_line,
-                        "keyword_highlight": keyword_highlight,
-                    }
-
                     await caption_service.generate_ass_subtitles(
                         segments=[{
                             "start_time": seg.start_time,
@@ -763,7 +780,8 @@ async def _export_clip_enhanced_task(
                         remove_fillers=remove_fillers,
                         add_emojis=add_emojis,
                     )
-                else:
+
+                    # Also expose plain captions for legacy code paths
                     captions = [
                         {
                             "start": seg.start_time - caption_start,
@@ -784,14 +802,24 @@ async def _export_clip_enhanced_task(
                 end_time=end_time,
             )
 
+            # Use AI-suggested split ratio when user didn't explicitly set one
+            if split_ratio is None:
+                suggested = layout_analysis.get("suggested_split_ratio")
+                effective_ratio = suggested if suggested else 0.55
+                logger.info(f"Using AI-suggested split ratio: {effective_ratio:.2f} (layout: {layout_analysis.get('layout_type')})")
+            else:
+                effective_ratio = split_ratio
+                logger.info(f"Using user-specified split ratio: {effective_ratio:.2f}")
+
             await split_service.generate_split_video(
                 video_path=video_path,
                 output_path=output_path,
                 layout_analysis=layout_analysis,
-                split_ratio=split_ratio,
+                split_ratio=effective_ratio,
                 separator_color=separator_color,
                 start_time=start_time,
                 end_time=end_time,
+                ass_subtitle_path=ass_path,
             )
 
             # Update database + record export history
@@ -808,9 +836,11 @@ async def _export_clip_enhanced_task(
                 settings_snapshot = json_mod.dumps({
                     "format": format,
                     "split_layout": True,
-                    "split_ratio": split_ratio,
+                    "split_ratio": effective_ratio,
                     "separator_color": separator_color,
                     "layout_type": layout_analysis.get("layout_type"),
+                    "include_captions": include_captions,
+                    "caption_style_id": str(caption_style_id) if caption_style_id else None,
                 })
                 export_record = ClipExport(
                     id=uuid.uuid4(),

@@ -492,7 +492,7 @@ class ReframeKeyframe(BaseModel):
 class SplitLayoutConfig(BaseModel):
     """Configuration for speaker + screen split layout."""
 
-    split_ratio: float = Field(default=0.65, ge=0.5, le=0.8, description="Content panel ratio (0.5-0.8)")
+    split_ratio: float = Field(default=0.55, ge=0.35, le=0.8, description="Content panel ratio (0.35-0.8; 0.35 for talking_head)")
     separator_color: str = Field(default="#333333", pattern=r"^#[0-9A-Fa-f]{6}$")
     separator_height: int = Field(default=4, ge=0, le=20)
 
@@ -764,7 +764,7 @@ class EnhancedClipExportRequest(BaseModel):
 
     # Split layout
     split_layout: bool = Field(default=False, description="Apply speaker + screen split layout")
-    split_ratio: float = Field(default=0.65, ge=0.5, le=0.8, description="Content panel ratio for split layout")
+    split_ratio: Optional[float] = Field(default=None, ge=0.35, le=0.8, description="Content panel ratio for split layout; None = auto-detect")
     separator_color: str = Field(default="#333333", description="Separator line color for split layout")
 
 
@@ -784,7 +784,7 @@ class BatchExportRequest(BaseModel):
     remove_silence: bool = Field(default=False)
     video_fade: bool = Field(default=False)
     split_layout: bool = Field(default=False)
-    split_ratio: float = Field(default=0.65)
+    split_ratio: float = Field(default=0.55)
     separator_color: str = Field(default="#333333")
 
 

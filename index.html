@@ -120,6 +120,7 @@
             Wand: () => <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M15 4V2"/><path d="M15 16v-2"/><path d="M8 9h2"/><path d="M20 9h2"/><path d="M17.8 11.8L19 13"/><path d="M15 9h0"/><path d="M17.8 6.2L19 5"/><path d="M3 21l9-9"/><path d="M12.2 6.2L11 5"/></svg>,
             Upload: () => <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>,
             Play: () => <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polygon points="5 3 19 12 5 21 5 3"/></svg>,
+            Pause: () => <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>,
             Scissors: () => <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><line x1="20" y1="4" x2="8.12" y2="15.88"/><line x1="14.47" y1="14.48" x2="20" y2="20"/><line x1="8.12" y1="8.12" x2="12" y2="12"/></svg>,
             TrendingUp: () => <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></svg>,
             Users: () => <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>,
@@ -375,6 +376,7 @@
             const tabs = [
                 { id: 'extract', label: 'Extract', icon: Icons.Download },
                 { id: 'aianalysis', label: 'AI Analysis', icon: Icons.Brain },
+                { id: 'library', label: 'Library', icon: Icons.Film },
                 { id: 'profeatures', label: 'Pro Features', icon: Icons.Sparkles },
                 { id: 'presets', label: 'Presets', icon: Icons.Layers },
                 { id: 'converter', label: 'Timestamp Converter', icon: Icons.Clock },
@@ -2249,7 +2251,7 @@
             const [progress, setProgress] = useState(0);
             const [error, setError] = useState(null);
             const [previewUrl, setPreviewUrl] = useState(null);
-            const [splitRatio, setSplitRatio] = useState(0.65);
+            const [splitRatio, setSplitRatio] = useState(0.55);
             const [separatorColor, setSeparatorColor] = useState('#333333');
             const isSplitMode = trackingMode === 'split';
             const effectiveAspectRatio = isSplitMode ? '9:16' : aspectRatio;
@@ -2668,7 +2670,7 @@
                 remove_silence: false,
                 video_fade: false,
                 split_layout: false,
-                split_ratio: 0.65,
+                split_ratio: null,  // null = auto-detect from AI analysis
                 separator_color: '#333333',
             });
 
@@ -2896,28 +2898,105 @@
                                     <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '4px', marginLeft: '28px' }}>
                                         Stack screen content on top, speaker on bottom (9:16)
                                     </div>
-                                    {exportOptions.split_layout && (
-                                        <div style={{ marginTop: '12px', marginLeft: '28px' }}>
-                                            <label style={{ display: 'block', fontSize: '12px', color: 'var(--text-muted)', marginBottom: '6px' }}>
-                                                Split Ratio: {Math.round(exportOptions.split_ratio * 100)}% / {Math.round((1 - exportOptions.split_ratio) * 100)}%
-                                            </label>
-                                            <input
-                                                type="range" min="0.5" max="0.8" step="0.05"
-                                                value={exportOptions.split_ratio}
-                                                onChange={e => setExportOptions({ ...exportOptions, split_ratio: parseFloat(e.target.value) })}
-                                                style={{ width: '100%', accentColor: 'var(--accent-purple)' }}
-                                            />
-                                            <label style={{ display: 'block', fontSize: '12px', color: 'var(--text-muted)', marginBottom: '4px', marginTop: '8px' }}>
-                                                Separator Color
-                                            </label>
-                                            <input
-                                                type="color"
-                                                value={exportOptions.separator_color}
-                                                onChange={e => setExportOptions({ ...exportOptions, separator_color: e.target.value })}
-                                                style={{ width: '36px', height: '28px', border: '1px solid var(--border)', borderRadius: '6px', cursor: 'pointer', background: 'none', padding: '2px' }}
-                                            />
+                                    {exportOptions.split_layout && (() => {
+                                        const displayRatio = exportOptions.split_ratio ?? 0.55;
+                                        const isAuto = exportOptions.split_ratio === null;
+                                        return (
+                                        <div style={{ marginTop: '12px', marginLeft: '28px', display: 'flex', gap: '16px', alignItems: 'flex-start' }}>
+                                            {/* Live preview */}
+                                            <div style={{ flexShrink: 0 }}>
+                                                <div style={{
+                                                    width: '90px',
+                                                    height: '160px',
+                                                    background: 'var(--bg-base)',
+                                                    border: '1px solid var(--border)',
+                                                    borderRadius: '8px',
+                                                    overflow: 'hidden',
+                                                    position: 'relative',
+                                                    display: 'flex',
+                                                    flexDirection: 'column',
+                                                }}>
+                                                    {/* Top panel (content) */}
+                                                    <div style={{
+                                                        flexBasis: `${displayRatio * 100}%`,
+                                                        background: 'linear-gradient(135deg, #2d3748 0%, #4a5568 100%)',
+                                                        display: 'flex',
+                                                        alignItems: 'center',
+                                                        justifyContent: 'center',
+                                                        color: 'rgba(255,255,255,0.6)',
+                                                        fontSize: '9px',
+                                                        fontWeight: '600',
+                                                        letterSpacing: '0.5px',
+                                                        position: 'relative',
+                                                    }}>
+                                                        SCREEN
+                                                    </div>
+                                                    {/* Separator */}
+                                                    <div style={{
+                                                        height: '2px',
+                                                        background: exportOptions.separator_color || '#000000',
+                                                    }} />
+                                                    {/* Bottom panel (speaker) */}
+                                                    <div style={{
+                                                        flex: 1,
+                                                        background: 'linear-gradient(135deg, #6b46c1 0%, #9f7aea 100%)',
+                                                        display: 'flex',
+                                                        alignItems: 'center',
+                                                        justifyContent: 'center',
+                                                        color: 'rgba(255,255,255,0.85)',
+                                                        fontSize: '9px',
+                                                        fontWeight: '600',
+                                                        letterSpacing: '0.5px',
+                                                        position: 'relative',
+                                                    }}>
+                                                        {/* Mock speaker circle */}
+                                                        <div style={{
+                                                            width: '22px',
+                                                            height: '22px',
+                                                            borderRadius: '50%',
+                                                            background: 'rgba(255,255,255,0.3)',
+                                                            border: '2px solid rgba(255,255,255,0.6)',
+                                                        }} />
+                                                    </div>
+                                                </div>
+                                                <div style={{ fontSize: '10px', color: 'var(--text-muted)', textAlign: 'center', marginTop: '4px' }}>
+                                                    {isAuto ? '9:16 Preview (auto)' : '9:16 Preview'}
+                                                </div>
+                                            </div>
+                                            {/* Controls */}
+                                            <div style={{ flex: 1, minWidth: 0 }}>
+                                                <label style={{ display: 'block', fontSize: '12px', color: 'var(--text-muted)', marginBottom: '6px' }}>
+                                                    Split Ratio: {isAuto ? 'Auto' : `${Math.round(displayRatio * 100)}% / ${Math.round((1 - displayRatio) * 100)}%`}
+                                                    {!isAuto && (
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => setExportOptions({ ...exportOptions, split_ratio: null })}
+                                                            style={{ marginLeft: '8px', background: 'none', border: '1px solid var(--border)', color: 'var(--text-muted)', fontSize: '10px', padding: '1px 6px', borderRadius: '4px', cursor: 'pointer' }}
+                                                        >reset to auto</button>
+                                                    )}
+                                                </label>
+                                                <input
+                                                    type="range" min="0.35" max="0.8" step="0.05"
+                                                    value={displayRatio}
+                                                    onChange={e => setExportOptions({ ...exportOptions, split_ratio: parseFloat(e.target.value) })}
+                                                    style={{ width: '100%', accentColor: 'var(--accent-purple)' }}
+                                                />
+                                                <div style={{ fontSize: '10px', color: 'var(--text-muted)', marginTop: '2px', marginBottom: '8px' }}>
+                                                    {isAuto ? 'AI auto-detects best ratio from video (talking_head: 35%, screen+PIP: 50-72%)' : 'User override active'}
+                                                </div>
+                                                <label style={{ display: 'block', fontSize: '12px', color: 'var(--text-muted)', marginBottom: '4px' }}>
+                                                    Separator Color
+                                                </label>
+                                                <input
+                                                    type="color"
+                                                    value={exportOptions.separator_color}
+                                                    onChange={e => setExportOptions({ ...exportOptions, separator_color: e.target.value })}
+                                                    style={{ width: '36px', height: '28px', border: '1px solid var(--border)', borderRadius: '6px', cursor: 'pointer', background: 'none', padding: '2px' }}
+                                                />
+                                            </div>
                                         </div>
-                                    )}
+                                        );
+                                    })()}
                                 </div>
 
                                 {/* Branding */}
@@ -3440,7 +3519,7 @@
 
         // ============== AI ANALYSIS PAGE ==============
 
-        const AIAnalysisPage = ({ onActivityChange }) => {
+        const AIAnalysisPage = ({ onActivityChange, pendingVideoId, onVideoLoaded }) => {
             const [apiBase, setApiBase] = useState(getApiBase);
             const [downloadDir, setDownloadDir] = useState(getDownloadDir);
             const [showSettings, setShowSettings] = useState(false);
@@ -3464,6 +3543,7 @@
             const [showThumbnails, setShowThumbnails] = useState(null);
             const [editingClip, setEditingClip] = useState(null);
             const [editForm, setEditForm] = useState({});
+            const [previewingClip, setPreviewingClip] = useState(null);
             const [showExportHistory, setShowExportHistory] = useState(null);
             const [exportHistory, setExportHistory] = useState([]);
             const [showNewClipForm, setShowNewClipForm] = useState(false);
@@ -3828,6 +3908,14 @@
                 }
             };
 
+            // Load video when triggered from Library tab
+            useEffect(() => {
+                if (pendingVideoId) {
+                    loadExistingVideo(pendingVideoId);
+                    if (onVideoLoaded) onVideoLoaded();
+                }
+            }, [pendingVideoId]);
+
             const handleUrlSubmit = async () => {
                 if (!videoUrl) return;
 
@@ -4047,6 +4135,47 @@
                     setError(err.message);
                 }
             };
+
+            // Preview clip in video player
+            const previewClip = (clip) => {
+                if (!videoRef.current) return;
+                const absStart = clip.start_time + clipStartTime;
+                setPreviewingClip(clip.id);
+                videoRef.current.currentTime = absStart;
+                videoRef.current.play();
+                videoRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            };
+
+            const stopPreview = () => {
+                if (videoRef.current) videoRef.current.pause();
+                setPreviewingClip(null);
+            };
+
+            // Auto-stop preview at clip end time
+            useEffect(() => {
+                if (!previewingClip || !videoRef.current) return;
+                const clip = results?.clips?.find(c => c.id === previewingClip);
+                if (!clip) return;
+                const absEnd = clip.end_time + clipStartTime;
+
+                const onTimeUpdate = () => {
+                    if (videoRef.current && videoRef.current.currentTime >= absEnd) {
+                        videoRef.current.pause();
+                        setPreviewingClip(null);
+                    }
+                };
+                const onPause = () => {
+                    setPreviewingClip(null);
+                };
+
+                const video = videoRef.current;
+                video.addEventListener('timeupdate', onTimeUpdate);
+                video.addEventListener('pause', onPause);
+                return () => {
+                    video.removeEventListener('timeupdate', onTimeUpdate);
+                    video.removeEventListener('pause', onPause);
+                };
+            }, [previewingClip, results, clipStartTime]);
 
             // Export clip
             const exportClip = async (clipId) => {
@@ -5454,6 +5583,25 @@
 
                                                 <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
                                                     <button
+                                                        onClick={() => previewingClip === clip.id ? stopPreview() : previewClip(clip)}
+                                                        style={{
+                                                            padding: '10px 16px',
+                                                            background: previewingClip === clip.id ? 'var(--accent-blue)' : 'var(--bg-elevated)',
+                                                            border: previewingClip === clip.id ? '1px solid var(--accent-blue)' : '1px solid var(--accent-blue)',
+                                                            borderRadius: '8px',
+                                                            color: previewingClip === clip.id ? 'white' : 'var(--accent-blue)',
+                                                            fontSize: '13px',
+                                                            fontWeight: '500',
+                                                            cursor: 'pointer',
+                                                            display: 'flex',
+                                                            alignItems: 'center',
+                                                            gap: '6px'
+                                                        }}
+                                                    >
+                                                        {previewingClip === clip.id ? <Icons.Pause /> : <Icons.Play />}
+                                                        {previewingClip === clip.id ? 'Stop' : 'Preview'}
+                                                    </button>
+                                                    <button
                                                         onClick={() => setExportingClip(clip)}
                                                         style={{
                                                             padding: '10px 16px',
@@ -5766,6 +5914,365 @@
             );
         };
 
+        // ============== VIDEO LIBRARY ==============
+        const VideoLibrary = ({ onLoadVideo }) => {
+            const [videos, setVideos] = useState([]);
+            const [loading, setLoading] = useState(true);
+            const [error, setError] = useState(null);
+            const apiBase = getApiBase();
+
+            const formatDuration = (seconds) => {
+                if (!seconds) return '--';
+                const m = Math.floor(seconds / 60);
+                const s = Math.floor(seconds % 60);
+                return `${m}m ${s}s`;
+            };
+
+            const formatRelativeTime = (dateStr) => {
+                if (!dateStr) return '--';
+                const now = new Date();
+                const date = new Date(dateStr);
+                const diffMs = now - date;
+                const diffMins = Math.floor(diffMs / 60000);
+                if (diffMins < 1) return 'just now';
+                if (diffMins < 60) return `${diffMins}m ago`;
+                const diffHours = Math.floor(diffMins / 60);
+                if (diffHours < 24) return `${diffHours}h ago`;
+                const diffDays = Math.floor(diffHours / 24);
+                if (diffDays < 30) return `${diffDays}d ago`;
+                return date.toLocaleDateString();
+            };
+
+            const fetchLibrary = useCallback(async () => {
+                if (!apiBase) {
+                    setError('No API URL configured. Set it in the AI Analysis tab.');
+                    setLoading(false);
+                    return;
+                }
+                setLoading(true);
+                setError(null);
+                try {
+                    const res = await fetch(`${apiBase}/videos/library`);
+                    if (!res.ok) throw new Error(`Failed to fetch library (${res.status})`);
+                    const data = await res.json();
+                    setVideos(data.videos || []);
+                } catch (err) {
+                    setError(err.message);
+                } finally {
+                    setLoading(false);
+                }
+            }, [apiBase]);
+
+            useEffect(() => {
+                fetchLibrary();
+            }, [fetchLibrary]);
+
+            const statusColors = {
+                completed: { bg: 'rgba(34,197,94,0.15)', color: 'var(--accent-green)' },
+                processing: { bg: 'rgba(59,130,246,0.15)', color: 'var(--accent-blue)' },
+                pending: { bg: 'rgba(234,179,8,0.15)', color: 'var(--accent-yellow)' },
+                failed: { bg: 'rgba(239,68,68,0.15)', color: 'var(--accent-red)' },
+            };
+
+            const getStatusStyle = (status) => {
+                return statusColors[status] || statusColors.pending;
+            };
+
+            return (
+                <div className="animate-in">
+                    <div style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        marginBottom: '20px'
+                    }}>
+                        <div>
+                            <h2 style={{ fontSize: '20px', fontWeight: '600', marginBottom: '4px' }}>
+                                Video Library
+                            </h2>
+                            <p style={{ fontSize: '13px', color: 'var(--text-muted)' }}>
+                                {videos.length > 0 ? `${videos.length} video${videos.length !== 1 ? 's' : ''} in library` : 'Browse and reload previously analyzed videos'}
+                            </p>
+                        </div>
+                        <button
+                            onClick={fetchLibrary}
+                            disabled={loading}
+                            style={{
+                                padding: '10px 20px',
+                                background: 'var(--bg-elevated)',
+                                border: '1px solid var(--border)',
+                                borderRadius: '10px',
+                                color: 'var(--text-secondary)',
+                                fontSize: '13px',
+                                fontWeight: '500',
+                                cursor: loading ? 'not-allowed' : 'pointer',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '8px',
+                                transition: 'all 0.2s'
+                            }}
+                        >
+                            {loading ? <Icons.Loader /> : <Icons.RotateCw />}
+                            Refresh
+                        </button>
+                    </div>
+
+                    {error && (
+                        <div style={{
+                            background: 'rgba(239,68,68,0.1)',
+                            border: '1px solid var(--accent-red)',
+                            borderRadius: '12px',
+                            padding: '16px',
+                            marginBottom: '20px',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '12px'
+                        }}>
+                            <Icons.AlertCircle />
+                            <span style={{ fontSize: '14px' }}>{error}</span>
+                        </div>
+                    )}
+
+                    {loading && videos.length === 0 && (
+                        <div style={{
+                            display: 'flex',
+                            flexDirection: 'column',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            padding: '80px 20px',
+                            color: 'var(--text-muted)'
+                        }}>
+                            <Icons.Loader />
+                            <p style={{ marginTop: '12px', fontSize: '14px' }}>Loading library...</p>
+                        </div>
+                    )}
+
+                    {!loading && !error && videos.length === 0 && (
+                        <div style={{
+                            background: 'var(--bg-surface)',
+                            borderRadius: '16px',
+                            border: '1px solid var(--border)',
+                            padding: '60px 20px',
+                            textAlign: 'center'
+                        }}>
+                            <Icons.Film />
+                            <h3 style={{ fontSize: '16px', fontWeight: '500', marginTop: '12px', marginBottom: '8px' }}>
+                                No videos yet
+                            </h3>
+                            <p style={{ fontSize: '13px', color: 'var(--text-muted)' }}>
+                                Upload or download a video in the AI Analysis tab to get started.
+                            </p>
+                        </div>
+                    )}
+
+                    {videos.length > 0 && (
+                        <div style={{
+                            display: 'grid',
+                            gridTemplateColumns: 'repeat(auto-fill, minmax(340px, 1fr))',
+                            gap: '16px'
+                        }}>
+                            {videos.map(video => {
+                                const sStyle = getStatusStyle(video.analysis_status);
+                                return (
+                                    <div
+                                        key={video.id}
+                                        style={{
+                                            background: 'var(--bg-surface)',
+                                            border: '1px solid var(--border)',
+                                            borderRadius: '14px',
+                                            padding: '20px',
+                                            transition: 'all 0.2s',
+                                            cursor: 'default'
+                                        }}
+                                        onMouseEnter={(e) => {
+                                            e.currentTarget.style.borderColor = 'var(--accent-blue)';
+                                            e.currentTarget.style.background = 'var(--bg-elevated)';
+                                        }}
+                                        onMouseLeave={(e) => {
+                                            e.currentTarget.style.borderColor = 'var(--border)';
+                                            e.currentTarget.style.background = 'var(--bg-surface)';
+                                        }}
+                                    >
+                                        {/* Thumbnail */}
+                                        {video.thumbnail_path && (
+                                            <div style={{
+                                                marginBottom: '12px',
+                                                borderRadius: '8px',
+                                                overflow: 'hidden',
+                                                background: 'var(--bg-base)',
+                                                aspectRatio: '16/9',
+                                            }}>
+                                                <img
+                                                    src={`${apiBase}/videos/${video.id}/thumbnail`}
+                                                    alt=""
+                                                    style={{
+                                                        width: '100%',
+                                                        height: '100%',
+                                                        objectFit: 'cover',
+                                                        display: 'block',
+                                                    }}
+                                                    onError={(e) => { e.target.style.display = 'none'; }}
+                                                />
+                                            </div>
+                                        )}
+
+                                        {/* Title row */}
+                                        <div style={{ marginBottom: '12px' }}>
+                                            <h3 style={{
+                                                fontSize: '15px',
+                                                fontWeight: '600',
+                                                lineHeight: '1.4',
+                                                overflow: 'hidden',
+                                                textOverflow: 'ellipsis',
+                                                whiteSpace: 'nowrap'
+                                            }}>
+                                                {video.title || video.original_filename || 'Untitled'}
+                                            </h3>
+                                            {video.title && video.original_filename && video.title !== video.original_filename && (
+                                                <p style={{
+                                                    fontSize: '12px',
+                                                    color: 'var(--text-muted)',
+                                                    fontFamily: 'var(--font-mono)',
+                                                    marginTop: '2px',
+                                                    overflow: 'hidden',
+                                                    textOverflow: 'ellipsis',
+                                                    whiteSpace: 'nowrap'
+                                                }}>
+                                                    {video.original_filename}
+                                                </p>
+                                            )}
+                                        </div>
+
+                                        {/* Metadata row */}
+                                        <div style={{
+                                            display: 'flex',
+                                            flexWrap: 'wrap',
+                                            gap: '8px',
+                                            marginBottom: '14px'
+                                        }}>
+                                            {/* Duration */}
+                                            <span style={{
+                                                display: 'inline-flex',
+                                                alignItems: 'center',
+                                                gap: '4px',
+                                                padding: '4px 10px',
+                                                background: 'var(--bg-elevated)',
+                                                borderRadius: '6px',
+                                                fontSize: '12px',
+                                                color: 'var(--text-secondary)',
+                                                fontFamily: 'var(--font-mono)'
+                                            }}>
+                                                <Icons.Clock />
+                                                {formatDuration(video.duration_seconds)}
+                                            </span>
+
+                                            {/* Resolution */}
+                                            {video.width && video.height && (
+                                                <span style={{
+                                                    display: 'inline-flex',
+                                                    alignItems: 'center',
+                                                    gap: '4px',
+                                                    padding: '4px 10px',
+                                                    background: 'var(--bg-elevated)',
+                                                    borderRadius: '6px',
+                                                    fontSize: '12px',
+                                                    color: 'var(--text-secondary)',
+                                                    fontFamily: 'var(--font-mono)'
+                                                }}>
+                                                    {video.width}x{video.height}
+                                                </span>
+                                            )}
+
+                                            {/* Analysis status badge */}
+                                            <span style={{
+                                                display: 'inline-flex',
+                                                alignItems: 'center',
+                                                gap: '4px',
+                                                padding: '4px 10px',
+                                                background: sStyle.bg,
+                                                borderRadius: '6px',
+                                                fontSize: '12px',
+                                                color: sStyle.color,
+                                                fontWeight: '500'
+                                            }}>
+                                                {video.analysis_status === 'completed' ? (
+                                                    <Icons.Check />
+                                                ) : video.analysis_status === 'processing' ? (
+                                                    <Icons.Loader />
+                                                ) : null}
+                                                {video.analysis_status || 'pending'}
+                                            </span>
+
+                                            {/* Clip count */}
+                                            {video.clip_count > 0 && (
+                                                <span style={{
+                                                    display: 'inline-flex',
+                                                    alignItems: 'center',
+                                                    gap: '4px',
+                                                    padding: '4px 10px',
+                                                    background: 'rgba(168,85,247,0.15)',
+                                                    borderRadius: '6px',
+                                                    fontSize: '12px',
+                                                    color: 'var(--accent-purple)',
+                                                    fontWeight: '500'
+                                                }}>
+                                                    <Icons.Scissors />
+                                                    {video.clip_count} clip{video.clip_count !== 1 ? 's' : ''}
+                                                </span>
+                                            )}
+                                        </div>
+
+                                        {/* Footer: date + load button */}
+                                        <div style={{
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            justifyContent: 'space-between'
+                                        }}>
+                                            <span style={{
+                                                fontSize: '12px',
+                                                color: 'var(--text-muted)'
+                                            }}>
+                                                {formatRelativeTime(video.created_at)}
+                                            </span>
+                                            <button
+                                                onClick={() => onLoadVideo(video.id)}
+                                                style={{
+                                                    padding: '8px 18px',
+                                                    background: 'var(--accent-blue)',
+                                                    border: 'none',
+                                                    borderRadius: '8px',
+                                                    color: 'white',
+                                                    fontSize: '13px',
+                                                    fontWeight: '500',
+                                                    cursor: 'pointer',
+                                                    display: 'flex',
+                                                    alignItems: 'center',
+                                                    gap: '6px',
+                                                    transition: 'all 0.2s',
+                                                    boxShadow: '0 2px 8px rgba(59,130,246,0.25)'
+                                                }}
+                                                onMouseEnter={(e) => {
+                                                    e.currentTarget.style.background = '#2563eb';
+                                                    e.currentTarget.style.boxShadow = '0 4px 16px rgba(59,130,246,0.35)';
+                                                }}
+                                                onMouseLeave={(e) => {
+                                                    e.currentTarget.style.background = 'var(--accent-blue)';
+                                                    e.currentTarget.style.boxShadow = '0 2px 8px rgba(59,130,246,0.25)';
+                                                }}
+                                            >
+                                                <Icons.Play />
+                                                Load
+                                            </button>
+                                        </div>
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    )}
+                </div>
+            );
+        };
+
         // Main App
         const App = () => {
             const [activeTab, setActiveTab] = useState(() => {
@@ -5773,6 +6280,7 @@
                 return session.activeTab || 'extract';
             });
             const [bgActivity, setBgActivity] = useState(null);
+            const [pendingVideoId, setPendingVideoId] = useState(null);
             const [url, setUrl] = useState('');
             const [presets, setPresets] = useState(() => {
                 const saved = localStorage.getItem('vep-presets');
@@ -5872,6 +6380,11 @@
                 setActiveTab('extract');
                 navigator.clipboard.writeText(item.command);
                 setToast({ message: 'Command copied!', type: 'success' });
+            }, []);
+
+            const handleLoadFromLibrary = useCallback((videoId) => {
+                setPendingVideoId(videoId);
+                setActiveTab('aianalysis');
             }, []);
 
             return (
@@ -5995,10 +6508,18 @@
                     )}
                     
                     <div style={{ display: activeTab === 'aianalysis' ? 'block' : 'none' }}>
-                        <AIAnalysisPage onActivityChange={setBgActivity} />
+                        <AIAnalysisPage
+                            onActivityChange={setBgActivity}
+                            pendingVideoId={pendingVideoId}
+                            onVideoLoaded={() => setPendingVideoId(null)}
+                        />
                     </div>
 
                     {activeTab === 'profeatures' && <ProFeaturesPage />}
+
+                    {activeTab === 'library' && (
+                        <VideoLibrary onLoadVideo={handleLoadFromLibrary} />
+                    )}
 
                     {activeTab === 'converter' && <TimestampConverter />}
 

@@ -122,7 +122,7 @@ async def generate_reframe(
             split_cfg = split_cfg.model_dump()
         layout_config = {
             **layout_analysis,
-            "split_ratio": split_cfg.get("split_ratio", 0.65),
+            "split_ratio": split_cfg.get("split_ratio", 0.55),
             "separator_color": split_cfg.get("separator_color", "#333333"),
             "separator_height": split_cfg.get("separator_height", 4),
         }
@@ -329,7 +329,7 @@ async def generate_reframe_preview(
             video_path=video.file_path,
             output_path=preview_path,
             layout_analysis=layout_cfg,
-            split_ratio=layout_cfg.get("split_ratio", 0.65),
+            split_ratio=layout_cfg.get("split_ratio", 0.55),
             separator_height=layout_cfg.get("separator_height", 4),
             separator_color=layout_cfg.get("separator_color", "#333333"),
             target_width=config.target_width,
@@ -427,7 +427,7 @@ async def export_reframed_clip(
             video_path=video.file_path,
             output_path=export_path,
             layout_analysis=layout_cfg,
-            split_ratio=layout_cfg.get("split_ratio", 0.65),
+            split_ratio=layout_cfg.get("split_ratio", 0.55),
             separator_height=layout_cfg.get("separator_height", 4),
             separator_color=layout_cfg.get("separator_color", "#333333"),
             target_width=config.target_width,

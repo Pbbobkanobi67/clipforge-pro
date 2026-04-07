@@ -44,7 +44,7 @@ class Settings(BaseSettings):
 
     # LLM Configuration
     llm_provider: Literal["anthropic", "openai"] = Field(default="anthropic")
-    claude_model: str = Field(default="claude-3-5-sonnet-20241022")
+    claude_model: str = Field(default="claude-sonnet-4-6")
     openai_model: str = Field(default="gpt-4-turbo-preview")
 
     # Hugging Face
@@ -86,6 +86,7 @@ class Settings(BaseSettings):
             "http://127.0.0.1:5500",
             "http://localhost:5500",
             "http://127.0.0.1:3000",
+            "https://clipforge-pro.vercel.app",
             "null",  # For file:// protocol
         ]
     )
