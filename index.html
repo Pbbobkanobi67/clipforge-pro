@@ -2647,6 +2647,217 @@
             );
         };
 
+        // Split Layout Positioner — drag/resize per-panel crop boxes on a source frame
+        const SplitLayoutPositioner = ({ clipId, topCrop, bottomCrop, onChange }) => {
+            const [frameUrl, setFrameUrl] = useState(null);
+            const [analysis, setAnalysis] = useState(null);
+            const [loading, setLoading] = useState(true);
+            const [errorMsg, setErrorMsg] = useState(null);
+            const containerRef = useRef(null);
+            const [containerWidth, setContainerWidth] = useState(420);
+            const dragStateRef = useRef(null);
+
+            // Load frame + layout analysis once per clip
+            useEffect(() => {
+                let cancelled = false;
+                setLoading(true);
+                setErrorMsg(null);
+                (async () => {
+                    try {
+                        const an = await apiFetch(`/clips/${clipId}/layout-analysis`);
+                        if (cancelled) return;
+                        setAnalysis(an);
+                        // Build frame URL (raw, not via apiFetch which expects JSON)
+                        const base = (typeof getApiBase === 'function') ? getApiBase() : (window.API_BASE || 'http://localhost:8000/api/v1');
+                        setFrameUrl(`${base}/clips/${clipId}/frame?offset=0`);
+
+                        // Seed crops from auto-detected speaker regions if user has none yet
+                        if (!topCrop && !bottomCrop && an.speaker_regions && an.speaker_regions.length >= 2) {
+                            onChange({
+                                top: { x: an.speaker_regions[0].x, y: an.speaker_regions[0].y, w: an.speaker_regions[0].w, h: an.speaker_regions[0].h },
+                                bottom: { x: an.speaker_regions[1].x, y: an.speaker_regions[1].y, w: an.speaker_regions[1].w, h: an.speaker_regions[1].h },
+                            });
+                        } else if (!topCrop && !bottomCrop) {
+                            // Default: full frame for both
+                            const sw = an.source_width || 1280;
+                            const sh = an.source_height || 720;
+                            onChange({
+                                top: { x: 0, y: 0, w: sw, h: sh },
+                                bottom: { x: 0, y: 0, w: sw, h: sh },
+                            });
+                        }
+                    } catch (e) {
+                        if (!cancelled) setErrorMsg(e.message || 'Failed to load preview');
+                    } finally {
+                        if (!cancelled) setLoading(false);
+                    }
+                })();
+                return () => { cancelled = true; };
+            }, [clipId]);
+
+            useEffect(() => {
+                const update = () => {
+                    if (containerRef.current) {
+                        setContainerWidth(containerRef.current.clientWidth);
+                    }
+                };
+                update();
+                window.addEventListener('resize', update);
+                return () => window.removeEventListener('resize', update);
+            }, []);
+
+            if (loading) {
+                return <div style={{ padding: '12px', fontSize: '12px', color: 'var(--text-muted)' }}>Loading source frame…</div>;
+            }
+            if (errorMsg || !analysis) {
+                return <div style={{ padding: '12px', fontSize: '12px', color: '#ef4444' }}>Preview unavailable: {errorMsg}</div>;
+            }
+
+            const sw = analysis.source_width || 1280;
+            const sh = analysis.source_height || 720;
+            const scale = containerWidth / sw;
+            const dispH = sh * scale;
+
+            const beginDrag = (which, handle) => (ev) => {
+                ev.preventDefault();
+                ev.stopPropagation();
+                const startBox = which === 'top' ? topCrop : bottomCrop;
+                if (!startBox) return;
+                dragStateRef.current = {
+                    which,
+                    handle,
+                    startMouseX: ev.clientX,
+                    startMouseY: ev.clientY,
+                    startBox: { ...startBox },
+                };
+            };
+
+            const onMouseMove = (ev) => {
+                const ds = dragStateRef.current;
+                if (!ds) return;
+                const dx = (ev.clientX - ds.startMouseX) / scale;
+                const dy = (ev.clientY - ds.startMouseY) / scale;
+                let { x, y, w, h } = ds.startBox;
+                if (ds.handle === 'move') {
+                    x += dx; y += dy;
+                } else if (ds.handle === 'se') {
+                    w += dx; h += dy;
+                } else if (ds.handle === 'sw') {
+                    x += dx; w -= dx; h += dy;
+                } else if (ds.handle === 'ne') {
+                    y += dy; w += dx; h -= dy;
+                } else if (ds.handle === 'nw') {
+                    x += dx; y += dy; w -= dx; h -= dy;
+                }
+                // Clamp
+                w = Math.max(40, Math.round(w));
+                h = Math.max(40, Math.round(h));
+                x = Math.max(0, Math.min(sw - w, Math.round(x)));
+                y = Math.max(0, Math.min(sh - h, Math.round(y)));
+                w = Math.min(w, sw - x);
+                h = Math.min(h, sh - y);
+                const next = { x, y, w, h };
+                if (ds.which === 'top') onChange({ top: next, bottom: bottomCrop });
+                else onChange({ top: topCrop, bottom: next });
+            };
+
+            const onMouseUp = () => { dragStateRef.current = null; };
+
+            useEffect(() => {
+                window.addEventListener('mousemove', onMouseMove);
+                window.addEventListener('mouseup', onMouseUp);
+                return () => {
+                    window.removeEventListener('mousemove', onMouseMove);
+                    window.removeEventListener('mouseup', onMouseUp);
+                };
+            });
+
+            const renderBox = (which, box, color, label) => {
+                if (!box) return null;
+                const left = box.x * scale;
+                const top = box.y * scale;
+                const w = box.w * scale;
+                const h = box.h * scale;
+                const handleSize = 10;
+                const handleStyle = (corner) => ({
+                    position: 'absolute',
+                    width: `${handleSize}px`,
+                    height: `${handleSize}px`,
+                    background: color,
+                    border: '2px solid #fff',
+                    borderRadius: '2px',
+                    cursor: corner === 'nw' || corner === 'se' ? 'nwse-resize' : 'nesw-resize',
+                    ...(corner === 'nw' ? { left: `-${handleSize/2}px`, top: `-${handleSize/2}px` } : {}),
+                    ...(corner === 'ne' ? { right: `-${handleSize/2}px`, top: `-${handleSize/2}px` } : {}),
+                    ...(corner === 'sw' ? { left: `-${handleSize/2}px`, bottom: `-${handleSize/2}px` } : {}),
+                    ...(corner === 'se' ? { right: `-${handleSize/2}px`, bottom: `-${handleSize/2}px` } : {}),
+                });
+                return (
+                    <div
+                        key={which}
+                        style={{
+                            position: 'absolute',
+                            left: `${left}px`,
+                            top: `${top}px`,
+                            width: `${w}px`,
+                            height: `${h}px`,
+                            border: `2px solid ${color}`,
+                            background: `${color}22`,
+                            cursor: 'move',
+                            boxSizing: 'border-box',
+                        }}
+                        onMouseDown={beginDrag(which, 'move')}
+                    >
+                        <div style={{
+                            position: 'absolute',
+                            top: '4px',
+                            left: '4px',
+                            background: color,
+                            color: '#fff',
+                            fontSize: '10px',
+                            fontWeight: '700',
+                            padding: '2px 6px',
+                            borderRadius: '3px',
+                            pointerEvents: 'none',
+                        }}>{label}</div>
+                        <div style={handleStyle('nw')} onMouseDown={beginDrag(which, 'nw')} />
+                        <div style={handleStyle('ne')} onMouseDown={beginDrag(which, 'ne')} />
+                        <div style={handleStyle('sw')} onMouseDown={beginDrag(which, 'sw')} />
+                        <div style={handleStyle('se')} onMouseDown={beginDrag(which, 'se')} />
+                    </div>
+                );
+            };
+
+            return (
+                <div>
+                    <div
+                        ref={containerRef}
+                        style={{
+                            position: 'relative',
+                            width: '100%',
+                            height: `${dispH}px`,
+                            background: '#000',
+                            backgroundImage: frameUrl ? `url("${frameUrl}")` : 'none',
+                            backgroundSize: 'cover',
+                            backgroundPosition: 'center',
+                            border: '1px solid var(--border)',
+                            borderRadius: '6px',
+                            overflow: 'hidden',
+                            userSelect: 'none',
+                        }}
+                    >
+                        {renderBox('top', topCrop, '#a855f7', 'TOP')}
+                        {renderBox('bottom', bottomCrop, '#3b82f6', 'BOTTOM')}
+                    </div>
+                    <div style={{ display: 'flex', gap: '8px', marginTop: '6px', fontSize: '10px', color: 'var(--text-muted)' }}>
+                        <div>Source: {sw}×{sh}</div>
+                        {topCrop && <div style={{ color: '#a855f7' }}>Top: {topCrop.w}×{topCrop.h}@{topCrop.x},{topCrop.y}</div>}
+                        {bottomCrop && <div style={{ color: '#3b82f6' }}>Bot: {bottomCrop.w}×{bottomCrop.h}@{bottomCrop.x},{bottomCrop.y}</div>}
+                    </div>
+                </div>
+            );
+        };
+
         // Enhanced Export Options Modal
         const ExportOptionsModal = ({ clip, onExport, onClose }) => {
             const [captionStyles, setCaptionStyles] = useState([]);
@@ -2672,6 +2883,9 @@
                 split_layout: false,
                 split_ratio: null,  // null = auto-detect from AI analysis
                 separator_color: '#333333',
+                dual_speaker_mode: false,  // opt-in: split 2 speakers into separate panels
+                custom_top_crop: null,     // {x,y,w,h} in source pixels - manual top panel crop
+                custom_bottom_crop: null,  // {x,y,w,h} in source pixels - manual bottom panel crop
             });
 
             useEffect(() => {
@@ -2713,9 +2927,17 @@
                 setExporting(true);
                 setError(null);
                 try {
+                    // Sanitize: drop zero-sized custom crops (placeholder before positioner seeded)
+                    const cleanOpts = { ...exportOptions };
+                    if (cleanOpts.custom_top_crop && (!cleanOpts.custom_top_crop.w || !cleanOpts.custom_top_crop.h)) {
+                        cleanOpts.custom_top_crop = null;
+                    }
+                    if (cleanOpts.custom_bottom_crop && (!cleanOpts.custom_bottom_crop.w || !cleanOpts.custom_bottom_crop.h)) {
+                        cleanOpts.custom_bottom_crop = null;
+                    }
                     const result = await apiFetch(`/clips/${clip.id}/export/enhanced`, {
                         method: 'POST',
-                        body: JSON.stringify(exportOptions),
+                        body: JSON.stringify(cleanOpts),
                     });
                     onExport && onExport(result);
                     onClose();
@@ -2993,6 +3215,57 @@
                                                     onChange={e => setExportOptions({ ...exportOptions, separator_color: e.target.value })}
                                                     style={{ width: '36px', height: '28px', border: '1px solid var(--border)', borderRadius: '6px', cursor: 'pointer', background: 'none', padding: '2px' }}
                                                 />
+                                                <label style={{ display: 'flex', alignItems: 'flex-start', gap: '8px', marginTop: '12px', cursor: 'pointer' }}>
+                                                    <input
+                                                        type="checkbox"
+                                                        checked={exportOptions.dual_speaker_mode}
+                                                        onChange={e => setExportOptions({ ...exportOptions, dual_speaker_mode: e.target.checked })}
+                                                        style={{ marginTop: '2px' }}
+                                                    />
+                                                    <div>
+                                                        <div style={{ fontSize: '12px', fontWeight: '500' }}>Split speakers into separate panels</div>
+                                                        <div style={{ fontSize: '10px', color: 'var(--text-muted)', marginTop: '2px' }}>
+                                                            Two-person interviews only. Crops each speaker into their own top/bottom panel. Off = both panels show full frame.
+                                                        </div>
+                                                    </div>
+                                                </label>
+
+                                                {/* Manual position toggle + drag positioner */}
+                                                <label style={{ display: 'flex', alignItems: 'flex-start', gap: '8px', marginTop: '12px', cursor: 'pointer', borderTop: '1px solid var(--border)', paddingTop: '12px' }}>
+                                                    <input
+                                                        type="checkbox"
+                                                        checked={!!(exportOptions.custom_top_crop && exportOptions.custom_bottom_crop)}
+                                                        onChange={e => {
+                                                            if (e.target.checked) {
+                                                                // Trigger positioner; SplitLayoutPositioner will seed from analysis
+                                                                setExportOptions({ ...exportOptions, custom_top_crop: { x:0,y:0,w:0,h:0 }, custom_bottom_crop: { x:0,y:0,w:0,h:0 } });
+                                                            } else {
+                                                                setExportOptions({ ...exportOptions, custom_top_crop: null, custom_bottom_crop: null });
+                                                            }
+                                                        }}
+                                                        style={{ marginTop: '2px' }}
+                                                    />
+                                                    <div style={{ flex: 1 }}>
+                                                        <div style={{ fontSize: '12px', fontWeight: '500' }}>Manually position panels (drag to crop)</div>
+                                                        <div style={{ fontSize: '10px', color: 'var(--text-muted)', marginTop: '2px' }}>
+                                                            Drag the purple TOP and blue BOTTOM boxes on the source frame to choose exactly what each panel shows. Overrides auto/dual-speaker.
+                                                        </div>
+                                                    </div>
+                                                </label>
+                                                {(exportOptions.custom_top_crop && exportOptions.custom_bottom_crop) && (
+                                                    <div style={{ marginTop: '10px' }}>
+                                                        <SplitLayoutPositioner
+                                                            clipId={clip.id}
+                                                            topCrop={exportOptions.custom_top_crop && exportOptions.custom_top_crop.w > 0 ? exportOptions.custom_top_crop : null}
+                                                            bottomCrop={exportOptions.custom_bottom_crop && exportOptions.custom_bottom_crop.w > 0 ? exportOptions.custom_bottom_crop : null}
+                                                            onChange={({ top, bottom }) => setExportOptions(prev => ({
+                                                                ...prev,
+                                                                custom_top_crop: top,
+                                                                custom_bottom_crop: bottom,
+                                                            }))}
+                                                        />
+                                                    </div>
+                                                )}
                                             </div>
                                         </div>
                                         );

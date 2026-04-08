@@ -236,6 +236,7 @@ class SplitLayoutService:
             "duration": duration,
             "pip_region": classification.get("pip_region"),
             "content_region": classification.get("content_region"),
+            "speaker_regions": classification.get("speaker_regions"),
             "confidence": classification["confidence"],
             "suggested_split_ratio": suggested_ratio,
         }
@@ -399,7 +400,12 @@ class SplitLayoutService:
             }
 
         if width_ratio > 0.35:
-            return {"layout_type": "talking_head", "confidence": min(detection_rate, 1.0)}
+            speaker_regions = self._cluster_speakers_for_talking_head(persons, frame_w, frame_h)
+            return {
+                "layout_type": "talking_head",
+                "confidence": min(detection_rate, 1.0),
+                "speaker_regions": speaker_regions,
+            }
 
         # Medium size or centered — ambiguous
         if detection_rate >= 0.15:
@@ -544,6 +550,100 @@ class SplitLayoutService:
             "corner": corner,
         }
 
+    def _cluster_speakers_for_talking_head(
+        self,
+        persons: list[tuple],
+        frame_w: int,
+        frame_h: int,
+    ) -> list[dict]:
+        """
+        Cluster person detections into 1 or 2 speaker regions for talking_head layouts.
+
+        Splits persons into left/right groups by X position using the frame midpoint.
+        Returns a list of speaker regions sorted left-to-right:
+            [{"x", "y", "w", "h", "cx"}, ...]
+
+        If only one cluster has data (single speaker), returns a 1-element list.
+        Each region is padded (15% headroom, 10% sides) and clamped to the frame.
+        """
+        if not persons:
+            return []
+
+        mid_x = frame_w / 2
+        left_group = []
+        right_group = []
+        for p in persons:
+            x1, y1, x2, y2 = p
+            cx = (x1 + x2) / 2
+            if cx < mid_x:
+                left_group.append(p)
+            else:
+                right_group.append(p)
+
+        def _region_from_group(group: list[tuple]) -> Optional[dict]:
+            if len(group) < 3:  # need at least a few detections for stability
+                return None
+            x1s = [p[0] for p in group]
+            y1s = [p[1] for p in group]
+            x2s = [p[2] for p in group]
+            y2s = [p[3] for p in group]
+            # 10th/90th percentile filtering for outlier robustness
+            rx1 = float(np.percentile(x1s, 10))
+            ry1 = float(np.percentile(y1s, 10))
+            rx2 = float(np.percentile(x2s, 90))
+            ry2 = float(np.percentile(y2s, 90))
+            raw_w = rx2 - rx1
+            raw_h = ry2 - ry1
+            if raw_w <= 0 or raw_h <= 0:
+                return None
+            # Padding: 18% headroom above, 8% sides, 5% bottom
+            pad_top = raw_h * 0.18
+            pad_side = raw_w * 0.08
+            pad_bottom = raw_h * 0.05
+            rx1 -= pad_side
+            ry1 -= pad_top
+            rx2 += pad_side
+            ry2 += pad_bottom
+            # Clamp to frame
+            rx1 = max(0, rx1)
+            ry1 = max(0, ry1)
+            rx2 = min(frame_w, rx2)
+            ry2 = min(frame_h, ry2)
+            x = int(rx1)
+            y = int(ry1)
+            w = int(rx2 - rx1)
+            h = int(ry2 - ry1)
+            # Ensure even dimensions for FFmpeg
+            w = (w // 2) * 2
+            h = (h // 2) * 2
+            if w < 16 or h < 16:
+                return None
+            return {"x": x, "y": y, "w": w, "h": h, "cx": x + w / 2}
+
+        regions = []
+        left_region = _region_from_group(left_group)
+        right_region = _region_from_group(right_group)
+        if left_region:
+            regions.append(left_region)
+        if right_region:
+            regions.append(right_region)
+
+        # If clustering failed (e.g., all persons on one side), fall back to
+        # a single union region from all detections.
+        if not regions and persons:
+            fallback = _region_from_group(persons)
+            if fallback:
+                regions.append(fallback)
+
+        # Sort left-to-right
+        regions.sort(key=lambda r: r["cx"])
+
+        logger.info(
+            f"Speaker cluster: {len(persons)} detections → {len(regions)} speaker(s): "
+            + ", ".join(f"({r['x']},{r['y']},{r['w']}x{r['h']})" for r in regions)
+        )
+        return regions
+
     def _suggest_split_ratio(
         self,
         layout_type: str,
@@ -600,6 +700,9 @@ class SplitLayoutService:
         start_time: Optional[float] = None,
         end_time: Optional[float] = None,
         ass_subtitle_path: Optional[str] = None,
+        dual_speaker_mode: bool = False,
+        custom_top_crop: Optional[dict] = None,
+        custom_bottom_crop: Optional[dict] = None,
     ) -> str:
         """
         Generate a portrait split video: content on top, speaker on bottom.
@@ -627,7 +730,8 @@ class SplitLayoutService:
                 video_path, output_path, layout_analysis,
                 split_ratio, separator_height, separator_color,
                 target_width, target_height, start_time, end_time,
-                ass_subtitle_path,
+                ass_subtitle_path, dual_speaker_mode,
+                custom_top_crop, custom_bottom_crop,
             ),
         )
 
@@ -644,6 +748,9 @@ class SplitLayoutService:
         start_time: Optional[float],
         end_time: Optional[float],
         ass_subtitle_path: Optional[str] = None,
+        dual_speaker_mode: bool = False,
+        custom_top_crop: Optional[dict] = None,
+        custom_bottom_crop: Optional[dict] = None,
     ) -> str:
         from app.services.video_service import _run_subprocess
 
@@ -683,8 +790,49 @@ class SplitLayoutService:
                 logger.warning(f"Failed to create split ASS, using original: {e}")
                 effective_ass_path = ass_subtitle_path
 
-        # Build filter complex based on layout type
-        if layout_type == "screen_speaker" and layout_analysis.get("pip_region"):
+        # Custom user-positioned crops take precedence over all auto layouts.
+        # Both must be provided to engage manual mode.
+        def _validate_crop(c):
+            if not c:
+                return None
+            try:
+                x = max(0, int(c.get("x", 0)))
+                y = max(0, int(c.get("y", 0)))
+                w = int(c.get("w", 0))
+                h = int(c.get("h", 0))
+                if w < 16 or h < 16:
+                    return None
+                # Clamp to source
+                w = min(w, source_w - x)
+                h = min(h, source_h - y)
+                w = (w // 2) * 2
+                h = (h // 2) * 2
+                if w < 16 or h < 16:
+                    return None
+                return {"x": x, "y": y, "w": w, "h": h}
+            except (TypeError, ValueError):
+                return None
+
+        valid_top = _validate_crop(custom_top_crop)
+        valid_bot = _validate_crop(custom_bottom_crop)
+
+        if valid_top and valid_bot:
+            logger.info(
+                f"Custom split: top_crop={valid_top}, bottom_crop={valid_bot}"
+            )
+            # Reuse the dual-speaker filter path - it accepts arbitrary crop boxes.
+            speaker_regions = [
+                {**valid_top, "cx": valid_top["x"] + valid_top["w"] / 2},
+                {**valid_bot, "cx": valid_bot["x"] + valid_bot["w"] / 2},
+            ]
+            filter_complex = self._build_talking_head_filter(
+                source_w, source_h,
+                target_width, content_h, speaker_h, separator_height,
+                ffmpeg_color, dur, fps,
+                speaker_regions=speaker_regions,
+                ass_subtitle_path=effective_ass_path,
+            )
+        elif layout_type == "screen_speaker" and layout_analysis.get("pip_region"):
             pip = layout_analysis["pip_region"]
             filter_complex = self._build_screen_speaker_filter(
                 source_w, source_h, pip,
@@ -693,10 +841,14 @@ class SplitLayoutService:
                 ass_subtitle_path=effective_ass_path,
             )
         elif layout_type == "talking_head":
+            # speaker_regions is only used when user opts into dual_speaker_mode.
+            # Default behavior keeps the full frame fit-with-blur in both panels.
+            speaker_regions = layout_analysis.get("speaker_regions") if dual_speaker_mode else None
             filter_complex = self._build_talking_head_filter(
                 source_w, source_h,
                 target_width, content_h, speaker_h, separator_height,
                 ffmpeg_color, dur, fps,
+                speaker_regions=speaker_regions,
                 ass_subtitle_path=effective_ass_path,
             )
         else:
@@ -997,53 +1149,88 @@ class SplitLayoutService:
         source_w: int, source_h: int,
         target_width: int, content_h: int, speaker_h: int,
         separator_height: int, sep_color: str, dur: float, fps: float,
+        speaker_regions: Optional[list] = None,
         ass_subtitle_path: Optional[str] = None,
     ) -> str:
         """Build filter for talking head (no separate screen content).
 
-        BOTH panels show the FULL original frame fit with blur background.
-        This preserves both speakers / branding regardless of source aspect ratio.
-        Top panel is at content_h, bottom at speaker_h. No cropping ever.
+        Two modes:
+        1. DUAL-SPEAKER (len(speaker_regions) == 2): crop the left speaker into
+           the top panel and the right speaker into the bottom panel, each fit
+           with a blurred background of the full frame. Produces the classic
+           OpusClip-style vertical interview layout.
+        2. FALLBACK: both panels show the full source frame fit with blur
+           (used when only 1 speaker or clustering failed).
         """
-        # --- Helper: compute fit parameters for a panel ---
-        def fit_to_panel(panel_w: int, panel_h: int) -> tuple:
-            scale = panel_w / source_w
-            sh = int(source_h * scale)
+        # --- Helper: compute fit parameters for a crop region into a panel ---
+        def fit_crop_to_panel(crop_w: int, crop_h: int, panel_w: int, panel_h: int) -> tuple:
+            if crop_w <= 0 or crop_h <= 0:
+                return panel_w, panel_h, 0, 0
+            scale = panel_w / crop_w
+            sh = int(crop_h * scale)
             sh = (sh // 2) * 2
             if sh <= panel_h:
                 sw = panel_w
                 py = (panel_h - sh) // 2
             else:
-                scale_h = panel_h / source_h
-                sw = int(source_w * scale_h)
+                scale_h = panel_h / crop_h
+                sw = int(crop_w * scale_h)
                 sw = (sw // 2) * 2
                 sh = panel_h
                 py = 0
             px = max(0, (panel_w - sw) // 2)
             return sw, sh, px, py
 
-        top_sw, top_sh, top_px, top_py = fit_to_panel(target_width, content_h)
-        bot_sw, bot_sh, bot_px, bot_py = fit_to_panel(target_width, speaker_h)
+        dual_speaker = speaker_regions is not None and len(speaker_regions) == 2
+        if dual_speaker:
+            left = speaker_regions[0]
+            right = speaker_regions[1]
+            top_sw, top_sh, top_px, top_py = fit_crop_to_panel(left["w"], left["h"], target_width, content_h)
+            bot_sw, bot_sh, bot_px, bot_py = fit_crop_to_panel(right["w"], right["h"], target_width, speaker_h)
 
-        logger.info(
-            f"TalkingHead FIT: source=({source_w}x{source_h}), "
-            f"top=({top_sw}x{top_sh})+pad({top_px},{top_py}), "
-            f"bottom=({bot_sw}x{bot_sh})+pad({bot_px},{bot_py})"
-        )
+            logger.info(
+                f"TalkingHead DUAL: source=({source_w}x{source_h}), "
+                f"top_crop=({left['w']}x{left['h']})@({left['x']},{left['y']}) → "
+                f"({top_sw}x{top_sh})+pad({top_px},{top_py}), "
+                f"bot_crop=({right['w']}x{right['h']})@({right['x']},{right['y']}) → "
+                f"({bot_sw}x{bot_sh})+pad({bot_px},{bot_py})"
+            )
 
-        filter_parts = [
-            f"[0:v]split=4[cfr][cbr][sfr][sbr]",
-            # Content background: heavily blurred full frame stretched to fill panel
-            f"[cbr]scale={target_width}:{content_h}:flags=fast_bilinear,boxblur=30:15[content_bg]",
-            # Content foreground: sharp full frame fit
-            f"[cfr]scale={top_sw}:{top_sh}:flags=lanczos[content_fg]",
-            f"[content_bg][content_fg]overlay={top_px}:{top_py}[content]",
-            # Speaker background: lightly blurred full frame stretched to fill panel
-            f"[sbr]scale={target_width}:{speaker_h}:flags=fast_bilinear,boxblur=25:12[speaker_bg]",
-            # Speaker foreground: sharp full frame fit (no cropping!)
-            f"[sfr]scale={bot_sw}:{bot_sh}:flags=lanczos[speaker_fg]",
-            f"[speaker_bg][speaker_fg]overlay={bot_px}:{bot_py}[speaker]",
-        ]
+            filter_parts = [
+                # Split input into 4 streams: content bg/fg, speaker bg/fg
+                f"[0:v]split=4[cfr][cbr][sfr][sbr]",
+                # Content background: heavily blurred FULL frame (for letterboxing)
+                f"[cbr]scale={target_width}:{content_h}:flags=fast_bilinear,boxblur=30:15[content_bg]",
+                # Content foreground: LEFT speaker crop, sharp fit
+                f"[cfr]crop={left['w']}:{left['h']}:{left['x']}:{left['y']},scale={top_sw}:{top_sh}:flags=lanczos[content_fg]",
+                f"[content_bg][content_fg]overlay={top_px}:{top_py}[content]",
+                # Speaker background: lightly blurred FULL frame
+                f"[sbr]scale={target_width}:{speaker_h}:flags=fast_bilinear,boxblur=25:12[speaker_bg]",
+                # Speaker foreground: RIGHT speaker crop, sharp fit
+                f"[sfr]crop={right['w']}:{right['h']}:{right['x']}:{right['y']},scale={bot_sw}:{bot_sh}:flags=lanczos[speaker_fg]",
+                f"[speaker_bg][speaker_fg]overlay={bot_px}:{bot_py}[speaker]",
+            ]
+        else:
+            # Fallback: full-frame fit with blur in both panels
+            top_sw, top_sh, top_px, top_py = fit_crop_to_panel(source_w, source_h, target_width, content_h)
+            bot_sw, bot_sh, bot_px, bot_py = fit_crop_to_panel(source_w, source_h, target_width, speaker_h)
+
+            logger.info(
+                f"TalkingHead FIT: source=({source_w}x{source_h}), "
+                f"top=({top_sw}x{top_sh})+pad({top_px},{top_py}), "
+                f"bottom=({bot_sw}x{bot_sh})+pad({bot_px},{bot_py}) "
+                f"[speaker_regions={len(speaker_regions) if speaker_regions else 0}]"
+            )
+
+            filter_parts = [
+                f"[0:v]split=4[cfr][cbr][sfr][sbr]",
+                f"[cbr]scale={target_width}:{content_h}:flags=fast_bilinear,boxblur=30:15[content_bg]",
+                f"[cfr]scale={top_sw}:{top_sh}:flags=lanczos[content_fg]",
+                f"[content_bg][content_fg]overlay={top_px}:{top_py}[content]",
+                f"[sbr]scale={target_width}:{speaker_h}:flags=fast_bilinear,boxblur=25:12[speaker_bg]",
+                f"[sfr]scale={bot_sw}:{bot_sh}:flags=lanczos[speaker_fg]",
+                f"[speaker_bg][speaker_fg]overlay={bot_px}:{bot_py}[speaker]",
+            ]
 
         # Use intermediate label if ASS subtitles will be applied after vstack
         vstack_label = "[stacked]" if ass_subtitle_path else "[outv]"

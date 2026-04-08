@@ -766,6 +766,9 @@ class EnhancedClipExportRequest(BaseModel):
     split_layout: bool = Field(default=False, description="Apply speaker + screen split layout")
     split_ratio: Optional[float] = Field(default=None, ge=0.35, le=0.8, description="Content panel ratio for split layout; None = auto-detect")
     separator_color: str = Field(default="#333333", description="Separator line color for split layout")
+    dual_speaker_mode: bool = Field(default=False, description="For talking_head layouts, split two speakers into separate top/bottom panels (opt-in)")
+    custom_top_crop: Optional[dict] = Field(default=None, description="Manual crop region for top panel: {x, y, w, h} in source pixels. When set, overrides auto layout for top panel.")
+    custom_bottom_crop: Optional[dict] = Field(default=None, description="Manual crop region for bottom panel: {x, y, w, h} in source pixels. When set, overrides auto layout for bottom panel.")
 
 
 class BatchExportRequest(BaseModel):
@@ -786,6 +789,7 @@ class BatchExportRequest(BaseModel):
     split_layout: bool = Field(default=False)
     split_ratio: float = Field(default=0.55)
     separator_color: str = Field(default="#333333")
+    dual_speaker_mode: bool = Field(default=False)
 
 
 class BatchExportResponse(BaseModel):

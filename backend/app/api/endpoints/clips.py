@@ -53,6 +53,7 @@ async def batch_export_clips(
                 split_layout=request.split_layout,
                 split_ratio=request.split_ratio,
                 separator_color=request.separator_color,
+                dual_speaker_mode=request.dual_speaker_mode,
             )
 
             result = await export_clip_enhanced(
@@ -533,6 +534,123 @@ async def _export_clip_task(
         session.close()
 
 
+@router.get("/{clip_id}/frame")
+async def get_clip_frame(
+    clip_id: uuid.UUID,
+    offset: float = Query(0.0, ge=0.0, description="Seconds from clip start"),
+    session: AsyncSession = Depends(get_async_session),
+):
+    """Extract a single source-resolution frame from the clip's source video.
+
+    Used by the split-layout positioner UI as a backdrop for drag-to-position.
+    """
+    import subprocess
+    import tempfile
+
+    clip_result = await session.execute(select(ClipSuggestion).filter(ClipSuggestion.id == clip_id))
+    clip = clip_result.scalar_one_or_none()
+    if not clip:
+        raise HTTPException(status_code=404, detail="Clip not found")
+
+    job_result = await session.execute(select(AnalysisJob).filter(AnalysisJob.id == clip.analysis_job_id))
+    job = job_result.scalar_one_or_none()
+    if not job:
+        raise HTTPException(status_code=404, detail="Analysis job not found")
+
+    video_result = await session.execute(select(Video).filter(Video.id == job.video_id))
+    video = video_result.scalar_one_or_none()
+    if not video:
+        raise HTTPException(status_code=404, detail="Source video not found")
+
+    config = job.config or {}
+    time_offset = config.get("clip_start_time", 0) or 0
+    seek_time = clip.start_time + time_offset + max(0.0, offset)
+
+    video_path = Path(video.file_path)
+    if not video_path.is_absolute():
+        video_path = Path.cwd() / video.file_path
+    if not video_path.exists():
+        raise HTTPException(status_code=404, detail=f"Source video file missing: {video_path}")
+
+    # Cache extracted frames in storage
+    cache_dir = settings.storage_path / "frames"
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    out_path = cache_dir / f"{clip_id}_t{seek_time:.2f}.jpg"
+
+    if not out_path.exists():
+        cmd = [
+            "ffmpeg", "-y",
+            "-ss", f"{seek_time}",
+            "-i", str(video_path),
+            "-frames:v", "1",
+            "-q:v", "3",
+            str(out_path),
+        ]
+        try:
+            subprocess.run(cmd, check=True, capture_output=True, timeout=20)
+        except subprocess.CalledProcessError as e:
+            raise HTTPException(status_code=500, detail=f"ffmpeg failed: {e.stderr.decode(errors='ignore')[:200]}")
+        except subprocess.TimeoutExpired:
+            raise HTTPException(status_code=500, detail="ffmpeg timed out extracting frame")
+
+    return FileResponse(path=str(out_path), media_type="image/jpeg")
+
+
+@router.get("/{clip_id}/layout-analysis")
+async def get_clip_layout_analysis(
+    clip_id: uuid.UUID,
+    session: AsyncSession = Depends(get_async_session),
+):
+    """Run split-layout analysis for a clip and return source dims + auto-detected speaker regions.
+
+    Used by the split-layout positioner UI to seed initial drag boxes.
+    """
+    clip_result = await session.execute(select(ClipSuggestion).filter(ClipSuggestion.id == clip_id))
+    clip = clip_result.scalar_one_or_none()
+    if not clip:
+        raise HTTPException(status_code=404, detail="Clip not found")
+
+    job_result = await session.execute(select(AnalysisJob).filter(AnalysisJob.id == clip.analysis_job_id))
+    job = job_result.scalar_one_or_none()
+    if not job:
+        raise HTTPException(status_code=404, detail="Analysis job not found")
+
+    video_result = await session.execute(select(Video).filter(Video.id == job.video_id))
+    video = video_result.scalar_one_or_none()
+    if not video:
+        raise HTTPException(status_code=404, detail="Source video not found")
+
+    config = job.config or {}
+    time_offset = config.get("clip_start_time", 0) or 0
+
+    video_path = Path(video.file_path)
+    if not video_path.is_absolute():
+        video_path = Path.cwd() / video.file_path
+
+    from app.services.split_layout_service import get_split_layout_service
+    split_service = get_split_layout_service()
+
+    try:
+        analysis = await split_service.analyze_layout(
+            video_path=str(video_path),
+            start_time=clip.start_time + time_offset,
+            end_time=clip.end_time + time_offset,
+        )
+    except Exception as e:
+        logger.error(f"Layout analysis failed for clip {clip_id}: {e}")
+        raise HTTPException(status_code=500, detail=f"Layout analysis failed: {e}")
+
+    return {
+        "source_width": analysis.get("source_width"),
+        "source_height": analysis.get("source_height"),
+        "layout_type": analysis.get("layout_type"),
+        "speaker_regions": analysis.get("speaker_regions") or [],
+        "pip_region": analysis.get("pip_region"),
+        "content_region": analysis.get("content_region"),
+        "suggested_split_ratio": analysis.get("suggested_split_ratio"),
+    }
+
+
 @router.post("/{clip_id}/export/enhanced", response_model=ClipSuggestionResponse)
 async def export_clip_enhanced(
     clip_id: uuid.UUID,
@@ -640,6 +758,9 @@ async def export_clip_enhanced(
         split_layout=request.split_layout,
         split_ratio=request.split_ratio,
         separator_color=request.separator_color,
+        dual_speaker_mode=request.dual_speaker_mode,
+        custom_top_crop=request.custom_top_crop,
+        custom_bottom_crop=request.custom_bottom_crop,
     )
 
     # Export synchronously so file exists before response
@@ -680,6 +801,9 @@ async def _export_clip_enhanced_task(
     split_layout: bool = False,
     split_ratio: Optional[float] = None,
     separator_color: str = "#333333",
+    dual_speaker_mode: bool = False,
+    custom_top_crop: Optional[dict] = None,
+    custom_bottom_crop: Optional[dict] = None,
 ):
     """Background task to export clip with enhanced options.
 
@@ -820,6 +944,9 @@ async def _export_clip_enhanced_task(
                 start_time=start_time,
                 end_time=end_time,
                 ass_subtitle_path=ass_path,
+                dual_speaker_mode=dual_speaker_mode,
+                custom_top_crop=custom_top_crop,
+                custom_bottom_crop=custom_bottom_crop,
             )
 
             # Update database + record export history
@@ -838,6 +965,9 @@ async def _export_clip_enhanced_task(
                     "split_layout": True,
                     "split_ratio": effective_ratio,
                     "separator_color": separator_color,
+                    "dual_speaker_mode": dual_speaker_mode,
+                    "custom_top_crop": custom_top_crop,
+                    "custom_bottom_crop": custom_bottom_crop,
                     "layout_type": layout_analysis.get("layout_type"),
                     "include_captions": include_captions,
                     "caption_style_id": str(caption_style_id) if caption_style_id else None,
